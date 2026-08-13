@@ -109,7 +109,11 @@ private extension FileInspector {
     ) -> Bool {
         let error = error as NSError
 
-        return error.domain == NSCocoaErrorDomain
-            && error.code == CocoaError.Code.fileNoSuchFile.rawValue
+        guard error.domain == NSCocoaErrorDomain else {
+            return false
+        }
+
+        return error.code == CocoaError.Code.fileNoSuchFile.rawValue
+            || error.code == CocoaError.Code.fileReadNoSuchFile.rawValue
     }
 }
