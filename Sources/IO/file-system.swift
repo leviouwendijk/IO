@@ -81,5 +81,87 @@ public extension FileSystem {
                 options: options
             )
         }
+
+        public func entries(
+            _ url: URL,
+            options:
+                FileManager.DirectoryEnumerationOptions = []
+        ) throws -> [FileSystemEntry] {
+            let keys: Set<URLResourceKey> = [
+                .isRegularFileKey,
+                .isDirectoryKey,
+                .isSymbolicLinkKey,
+            ]
+
+            let urls = try contents(
+                url,
+                properties: Array(
+                    keys
+                ),
+                options: options
+            )
+
+            return try urls.compactMap {
+                child in
+
+                let values: URLResourceValues
+
+                do {
+                    values =
+                        try child.resourceValues(
+                            forKeys: keys
+                        )
+                } catch {
+                    if isMissingFileError(
+                        error
+                    ) {
+                        return nil
+                    }
+
+                    throw error
+                }
+
+                let kind: FileKind
+
+                if values.isSymbolicLink == true {
+                    kind = .symlink
+                } else if values.isDirectory == true {
+                    kind = .directory
+                } else if values.isRegularFile == true {
+                    kind = .file
+                } else {
+                    kind = .other
+                }
+
+                return .init(
+                    url: child,
+                    kind: kind
+                )
+            }
+        }
+
+        private func isMissingFileError(
+            _ error: Error
+        ) -> Bool {
+            let error =
+                error as NSError
+
+            guard error.domain
+                    == NSCocoaErrorDomain
+            else {
+                return false
+            }
+
+            return error.code
+                == CocoaError
+                .Code
+                .fileNoSuchFile
+                .rawValue
+                || error.code
+                    == CocoaError
+                    .Code
+                    .fileReadNoSuchFile
+                    .rawValue
+        }
     }
 }
