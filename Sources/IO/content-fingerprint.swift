@@ -54,11 +54,24 @@ public struct ContentFingerprint: Codable, Sendable, Hashable, CustomStringConve
         var hash: UInt64 = 14_695_981_039_346_656_037
         let prime: UInt64 = 1_099_511_628_211
 
-        for byte in bytes {
-            hash ^= UInt64(
-                byte
+        bytes.withUnsafeBytes { rawBuffer in
+            guard let baseAddress = rawBuffer.baseAddress else {
+                return
+            }
+
+            let buffer = baseAddress.assumingMemoryBound(
+                to: UInt8.self
             )
-            hash &*= prime
+
+            var index = 0
+
+            while index < rawBuffer.count {
+                hash ^= UInt64(
+                    buffer[index]
+                )
+                hash &*= prime
+                index += 1
+            }
         }
 
         let value = String(
