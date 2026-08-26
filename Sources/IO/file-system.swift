@@ -37,6 +37,16 @@ public struct FileSystem: Sendable {
         )
     }
 
+    public func replace(
+        _ original: URL,
+        with replacement: URL
+    ) throws {
+        _ = try FileManager.default.replaceItemAt(
+            original.standardizedFileURL,
+            withItemAt: replacement.standardizedFileURL
+        )
+    }
+
     public func remove(
         _ url: URL
     ) throws {
@@ -84,6 +94,7 @@ public extension FileSystem {
 
         public func entries(
             _ url: URL,
+            recursive: Bool = false,
             options:
                 FileManager.DirectoryEnumerationOptions = []
         ) throws -> [FileSystemEntry] {
@@ -101,43 +112,70 @@ public extension FileSystem {
                 options: options
             )
 
-            return try urls.compactMap {
+            let direct = try urls.compactMap {
                 child in
 
-                let values: URLResourceValues
-
-                do {
-                    values =
-                        try child.resourceValues(
-                            forKeys: keys
-                        )
-                } catch {
-                    if isMissingFileError(
-                        error
-                    ) {
-                        return nil
-                    }
-
-                    throw error
-                }
-
-                let kind: FileKind
-
-                if values.isSymbolicLink == true {
-                    kind = .symlink
-                } else if values.isDirectory == true {
-                    kind = .directory
-                } else if values.isRegularFile == true {
-                    kind = .file
-                } else {
-                    kind = .other
-                }
-
-                return .init(
-                    url: child,
-                    kind: kind
+                try entry(
+                    for: child,
+                    keys: keys
                 )
             }
+
+            guard recursive else {
+                return direct
+            }
+
+            var result = direct
+
+            for child in direct where child.kind == .directory {
+                result.append(
+                    contentsOf: try entries(
+                        child.url,
+                        recursive: true,
+                        options: options
+                    )
+                )
+            }
+
+            return result
+        }
+
+        private func entry(
+            for child: URL,
+            keys: Set<URLResourceKey>
+        ) throws -> FileSystemEntry? {
+            let values: URLResourceValues
+
+            do {
+                values = try child.resourceValues(
+                    forKeys: keys
+                )
+            } catch {
+                if isMissingFileError(
+                    error
+                ) {
+                    return nil
+                }
+
+                throw error
+            }
+
+            let kind: FileKind
+
+            if values.isSymbolicLink == true {
+                kind = .symlink
+            } else if values.isDirectory == true {
+                kind = .directory
+            } else if values.isRegularFile == true {
+                kind = .file
+            } else {
+                kind = .other
+            }
+
+            return .init(
+                url: child,
+                kind: kind
+            )
         }
 
         private func isMissingFileError(
