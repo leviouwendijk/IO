@@ -10,38 +10,9 @@ enum NativeFileSystem {
     static func resolve(
         _ input: URL
     ) -> URL {
-        let standardized = input.standardizedFileURL
-
-        guard let path = NativePath(
-            fileSystemURL: standardized
-        ) else {
-            return standardized
-        }
-
-        guard let resolved = path.withCString({
-            realpath(
-                $0,
-                nil
-            )
-        }) else {
-            // Match Foundation's nonthrowing resolve contract:
-            // only replace the path when the entire path canonicalizes.
-            // Broken links, loops, and missing components retain the
-            // lexically standardized original path.
-            return standardized
-        }
-
-        defer {
-            free(
-                resolved
-            )
-        }
-
-        return URL(
-            fileURLWithFileSystemRepresentation: resolved,
-            isDirectory: standardized.hasDirectoryPath,
-            relativeTo: nil
-        ).standardizedFileURL
+        NativeFileSystemResolution.resolve(
+            input
+        )
     }
 
     static func exists(_ url: URL) -> Bool {

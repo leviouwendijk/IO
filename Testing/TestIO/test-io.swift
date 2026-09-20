@@ -206,8 +206,6 @@ package enum TestIO {
         .init(name: "filesystem-mutation-replace-equivalence", body: testFileSystemMutationReplaceEquivalence),
         .init(name: "filesystem-mutation-failure-postconditions", body: testFileSystemMutationFailurePostconditions),
         .init(name: "filesystem-resolution-reference-equivalence", body: testFileSystemResolutionReferenceEquivalence),
-        .init(name: "filesystem-resolution-native-candidate-equivalence", body: testNativeResolutionCandidates),
-        .init(name: "filesystem-resolution-component-adaptive-equivalence", body: testComponentAdaptiveResolutionCandidate),
         .init(name: "filesystem-resolution-readlink-dispatch-equivalence", body: testReadlinkDispatchResolutionCandidate),
         ]
     }

@@ -220,6 +220,61 @@ extension TestIO {
             withDestinationPath: "loop-a"
         )
 
+        // Hardening fixtures for leaf symlinks whose targets require
+        // intermediate-component resolution rather than lexical collapse.
+        try manager.createSymbolicLink(
+            atPath:
+                root.appendingPathComponent(
+                    "leaf-through-directory-link"
+                ).path,
+            withDestinationPath:
+                "directory-link/child.txt"
+        )
+
+        try manager.createSymbolicLink(
+            atPath:
+                directory.appendingPathComponent(
+                    "relative-up-link"
+                ).path,
+            withDestinationPath:
+                "../target.txt"
+        )
+
+        let deep = nested.appendingPathComponent(
+            "deep",
+            isDirectory: true
+        )
+        try manager.createDirectory(
+            at: deep,
+            withIntermediateDirectories: false
+        )
+
+        let nestedTarget = nested.appendingPathComponent(
+            "target.txt"
+        )
+        try writeFixtureFile(
+            nestedTarget,
+            contents: "nested-target\n"
+        )
+
+        try manager.createSymbolicLink(
+            atPath:
+                root.appendingPathComponent(
+                    "deep-link"
+                ).path,
+            withDestinationPath:
+                "nested/deep"
+        )
+
+        try manager.createSymbolicLink(
+            atPath:
+                root.appendingPathComponent(
+                    "dotdot-crosses-symlink"
+                ).path,
+            withDestinationPath:
+                "deep-link/../target.txt"
+        )
+
         let cases: [FileSystemResolutionCase] = [
             .init(
                 name: "regular-file",
@@ -278,6 +333,32 @@ extension TestIO {
                 input:
                     root.appendingPathComponent(
                         "dotdot-link"
+                    )
+            ),
+            .init(
+                name: "leaf-target-through-directory-link",
+                input:
+                    root.appendingPathComponent(
+                        "leaf-through-directory-link"
+                    )
+            ),
+            .init(
+                name: "leaf-under-directory-link-with-parent-relative-target",
+                input:
+                    root
+                        .appendingPathComponent(
+                            "directory-link",
+                            isDirectory: true
+                        )
+                        .appendingPathComponent(
+                            "relative-up-link"
+                        )
+            ),
+            .init(
+                name: "target-dotdot-crosses-symlink",
+                input:
+                    root.appendingPathComponent(
+                        "dotdot-crosses-symlink"
                     )
             ),
             .init(

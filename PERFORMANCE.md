@@ -145,4 +145,33 @@ The component walker uses `readlink` itself as the classifier. `EINVAL` means an
 
 The initial full-path `readlink` also proves an ordinary final leaf is not a symbolic link, allowing the component walker to skip re-probing that final component.
 
-R0g remains experimental until it matches the full semantic fixture and its counterbalanced benchmark justifies promotion.
+R0g remained experimental until R0h added adversarial semantic fixtures and completed the final selection.
+
+
+### R0h: hardened readlink-first resolver selected
+
+R0h extended the semantic fixture with adversarial symlink-target cases that require filesystem-order resolution rather than lexical collapse:
+
+- a leaf symbolic link targeting a child through an intermediate directory symbolic link;
+- a leaf reached through a directory symbolic link with a parent-relative target;
+- a link target whose `..` crosses a symbolic link whose resolved parent differs from its lexical parent.
+
+The hardened candidate matched Foundation across the expanded fixture.
+
+The final heavy counterbalanced benchmark remained faster than Foundation on every characterized row. Representative median speedups included:
+
+- regular file: 2.367x;
+- relative file link: 1.769x;
+- absolute file link: 1.697x;
+- child through directory link: 2.115x;
+- symbolic-link chain: 1.486x;
+- leaf target through directory link: 2.265x;
+- leaf under directory link with parent-relative target: 1.266x;
+- target `..` crossing a symbolic link: 1.432x;
+- broken link: 2.089x;
+- missing leaf: 1.761x;
+- missing child through directory link: 2.363x;
+- symbolic-link loop: 4.517x;
+- lexical `..`: 1.597x.
+
+This closes R0. The readlink-first/component-walking implementation is the selected native production resolver. Foundation remains the semantic/performance reference backend rather than the implementation behind `.c.resolve`.

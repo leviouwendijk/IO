@@ -1,5 +1,4 @@
 import Foundation
-import IO
 
 #if canImport(Darwin)
 import Darwin
@@ -7,107 +6,19 @@ import Darwin
 import Glibc
 #endif
 
-extension TestIO {
-    enum ReadlinkDispatchLane: Hashable {
-        case foundation
-        case component_adaptive
-        case readlink_dispatch
-    }
-
-    struct ReadlinkDispatchSummary {
-        let minimum: Double
-        let median: Double
-        let maximum: Double
-
-        init(samples: [Double]) throws {
-            guard !samples.isEmpty else {
-                throw TestFailure(
-                    message: "readlink dispatch benchmark requires at least one sample"
-                )
-            }
-
-            let sorted = samples.sorted()
-            let middle = sorted.count / 2
-
-            self.minimum = sorted[0]
-            self.median = sorted[middle]
-            self.maximum = sorted[sorted.count - 1]
-        }
-    }
-
-    static func testReadlinkDispatchResolutionCandidate() throws {
-        try withFileSystemResolutionFixture {
-            _,
-            cases in
-
-            for item in cases {
-                try expectEqual(
-                    resolutionReadlinkDispatch(
-                        item.input
-                    ),
-                    FileSystem.foundation.resolve(
-                        item.input
-                    ),
-                    "readlink-dispatch resolver differs for \(item.name)"
-                )
-            }
-        }
-    }
-
-    static func runReadlinkDispatchResolutionBenchmarks(
-        heavy: Bool
-    ) throws {
-        try withFileSystemResolutionFixture {
-            _,
-            cases in
-
-            print("")
-            print("filesystem readlink-dispatch resolution")
-            print("foundation: FileSystem.foundation.resolve")
-            print(
-                "component_adaptive: R0f pre-scan + lstat/readlink component walker"
-            )
-            print(
-                "readlink_dispatch: leaf readlink first; readlink-only component walk for ordinary leaves"
-            )
-            print(
-                "iterations_per_lane: "
-                    + "\(heavy ? 20_000 : 2_000)"
-            )
-            print("samples_per_lane: 7")
-            print("lane_order: rotating_counterbalanced")
-            print("")
-
-            for item in cases {
-                let foundation =
-                    FileSystem.foundation.resolve(
-                        item.input
-                    )
-                let candidate =
-                    resolutionReadlinkDispatch(
-                        item.input
-                    )
-
-                try expectEqual(
-                    candidate,
-                    foundation,
-                    "readlink-dispatch resolver differs for \(item.name)"
-                )
-
-                try runReadlinkDispatchCase(
-                    name: item.name,
-                    url: item.input,
-                    iterations:
-                        heavy
-                        ? 20_000
-                        : 2_000
-                )
-            }
-        }
-    }
-}
-
-extension TestIO {
+/// Native canonical path resolution.
+///
+/// The resolver is intentionally byte-oriented at the POSIX boundary:
+/// - try the complete leaf with `readlink` first;
+/// - follow leaf symlink chains without Foundation normalization;
+/// - for ordinary leaves, walk components with `readlink` as the symlink classifier;
+/// - resolve `.` / `..` only in filesystem order after preceding symlinks expand;
+/// - preserve FileSystem's nonthrowing fallback by returning the standardized original
+///   path whenever complete resolution fails.
+///
+/// The R0h benchmark/semantic suite selected this shape over Foundation's
+/// `resolvingSymlinksInPath` on the characterized macOS workload.
+enum NativeFileSystemResolution {
     static let rdSlash =
         CChar(47)
     static let rdDot =
@@ -115,12 +26,56 @@ extension TestIO {
     static let rdSymlinkLimit =
         40
 
-    static func resolutionReadlinkDispatch(
+    static func resolve(
         _ input: URL
     ) -> URL {
-        FileSystem.c.resolve(
-            input
-        )
+        input.withUnsafeFileSystemRepresentation {
+            pointer in
+
+            guard let pointer else {
+                return input.standardizedFileURL
+            }
+
+            return withUnsafeTemporaryAllocation(
+                of: CChar.self,
+                capacity: Int(PATH_MAX)
+            ) {
+                target in
+
+                guard let targetBase =
+                    target.baseAddress
+                else {
+                    return input.standardizedFileURL
+                }
+
+                let targetCount =
+                    readlink(
+                        pointer,
+                        targetBase,
+                        target.count - 1
+                    )
+
+                if targetCount >= 0 {
+                    target[targetCount] = 0
+
+                    return rdResolveLeafSymlink(
+                        input,
+                        source: pointer,
+                        firstTarget: target
+                    )
+                }
+
+                guard errno == EINVAL else {
+                    return input.standardizedFileURL
+                }
+
+                return rdComponentWalk(
+                    input,
+                    pointer: pointer,
+                    finalLeafKnownNonSymlink: true
+                )
+            }
+        }
     }
 
     static func rdResolveLeafSymlink(
@@ -168,9 +123,6 @@ extension TestIO {
                             return input.standardizedFileURL
                         }
 
-                        // Cheap early exit for cycles that return to the
-                        // original leaf path. The hop limit remains the
-                        // general cycle guard for other loop shapes.
                         if followedLinks > 1,
                            strcmp(
                             currentBase,
@@ -192,11 +144,6 @@ extension TestIO {
                                 return input.standardizedFileURL
                             }
 
-                            // The final leaf is ordinary, but the textual
-                            // path may still contain intermediate symlinks
-                            // or lexical dot components. Resolve those in
-                            // path order rather than returning the textual
-                            // leaf-chain spelling.
                             return rdComponentWalk(
                                 input,
                                 pointer: currentBase,
@@ -844,214 +791,76 @@ extension TestIO {
         return count
     }
 
-    static func runReadlinkDispatchCase(
-        name: String,
-        url: URL,
-        iterations: Int
-    ) throws {
-        let lanes: [ReadlinkDispatchLane] = [
-            .foundation,
-            .component_adaptive,
-            .readlink_dispatch,
-        ]
-        let sampleCount = 7
-        let baseIterations =
-            iterations / sampleCount
-        let extraIterations =
-            iterations % sampleCount
-
-        var samples: [
-            ReadlinkDispatchLane: [Double]
-        ] = [:]
-        var sink = 0
-
-        for sampleIndex in 0..<sampleCount {
-            let sampleIterations =
-                baseIterations
-                + (
-                    sampleIndex < extraIterations
-                    ? 1
-                    : 0
-                )
-            let rotation =
-                sampleIndex % lanes.count
-            let order =
-                Array(
-                    lanes[rotation...]
-                )
-                + Array(
-                    lanes[..<rotation]
-                )
-
-            for lane in order {
-                let seconds =
-                    rdMeasure(
-                        iterations:
-                            sampleIterations
-                    ) {
-                        let resolved: URL
-
-                        switch lane {
-                        case .foundation:
-                            resolved =
-                                FileSystem.foundation.resolve(
-                                    url
-                                )
-
-                        case .component_adaptive:
-                            resolved =
-                                resolutionComponentAdaptive(
-                                    url
-                                )
-
-                        case .readlink_dispatch:
-                            resolved =
-                                resolutionReadlinkDispatch(
-                                    url
-                                )
-                        }
-
-                        sink &+=
-                            resolved.path.count
-                    }
-
-                samples[
-                    lane,
-                    default: []
-                ].append(
-                    seconds
-                        / Double(
-                            sampleIterations
-                        )
-                )
-            }
-        }
-
-        withExtendedLifetime(
-            sink
-        ) {}
-
-        let foundation =
-            try ReadlinkDispatchSummary(
-                samples:
-                    samples[.foundation]
-                    ?? []
-            )
-        let adaptive =
-            try ReadlinkDispatchSummary(
-                samples:
-                    samples[.component_adaptive]
-                    ?? []
-            )
-        let readlink =
-            try ReadlinkDispatchSummary(
-                samples:
-                    samples[.readlink_dispatch]
-                    ?? []
-            )
-
-        print(name)
-        printReadlinkDispatchSummary(
-            name: "foundation",
-            summary: foundation
-        )
-        printReadlinkDispatchSummary(
-            name: "component_adaptive",
-            summary: adaptive
-        )
-        printReadlinkDispatchSummary(
-            name: "readlink_dispatch",
-            summary: readlink
-        )
-        print(
-            "  readlink_dispatch_vs_foundation_x: "
-                + rdRatio(
-                    foundation.median
-                        / max(
-                            readlink.median,
-                            .leastNonzeroMagnitude
-                        )
-                )
-        )
-        print(
-            "  readlink_dispatch_vs_component_adaptive_x: "
-                + rdRatio(
-                    adaptive.median
-                        / max(
-                            readlink.median,
-                            .leastNonzeroMagnitude
-                        )
-                )
-        )
-        print("")
-    }
-
-    static func rdMeasure(
-        iterations: Int,
-        operation: () -> Void
-    ) -> Double {
-        let clock =
-            ContinuousClock()
-        let started =
-            clock.now
-
-        for _ in 0..<iterations {
-            operation()
-        }
-
-        let duration =
-            started.duration(
-                to: clock.now
-            )
-        let components =
-            duration.components
-
-        return Double(
-            components.seconds
-        ) + Double(
-            components.attoseconds
-        ) / 1_000_000_000_000_000_000
-    }
-
-    static func printReadlinkDispatchSummary(
-        name: String,
-        summary: ReadlinkDispatchSummary
+    static func normalizeDarwinPresentation(
+        _ path: UnsafeMutableBufferPointer<CChar>
     ) {
-        print(
-            "  \(name)_seconds_per_operation_min: "
-                + rdSeconds(
-                    summary.minimum
+        #if canImport(Darwin)
+        guard let baseAddress =
+                path.baseAddress
+        else {
+            return
+        }
+
+        let prefixes: [[CChar]] = [
+            [
+                47, 112, 114, 105, 118, 97, 116, 101,
+                47, 118, 97, 114,
+            ],
+            [
+                47, 112, 114, 105, 118, 97, 116, 101,
+                47, 116, 109, 112,
+            ],
+            [
+                47, 112, 114, 105, 118, 97, 116, 101,
+                47, 101, 116, 99,
+            ],
+        ]
+
+        for prefix in prefixes {
+            var matches = true
+
+            for index in prefix.indices {
+                if baseAddress[index]
+                    != prefix[index]
+                {
+                    matches = false
+                    break
+                }
+            }
+
+            guard matches else {
+                continue
+            }
+
+            let boundary =
+                baseAddress[
+                    prefix.count
+                ]
+
+            guard boundary == 0
+                    || boundary
+                        == rdSlash
+            else {
+                continue
+            }
+
+            let remainder =
+                baseAddress.advanced(
+                    by: 8
                 )
-        )
-        print(
-            "  \(name)_seconds_per_operation_median: "
-                + rdSeconds(
-                    summary.median
-                )
-        )
-        print(
-            "  \(name)_seconds_per_operation_max: "
-                + rdSeconds(
-                    summary.maximum
-                )
-        )
+            let byteCount =
+                rdCStringLength(
+                    remainder
+                ) + 1
+
+            memmove(
+                baseAddress,
+                remainder,
+                byteCount
+            )
+            return
+        }
+        #endif
     }
 
-    static func rdSeconds(
-        _ value: Double
-    ) -> String {
-        String(
-            format: "%.9f",
-            value
-        )
-    }
-
-    static func rdRatio(
-        _ value: Double
-    ) -> String {
-        String(
-            format: "%.3f",
-            value
-        )
-    }
 }
