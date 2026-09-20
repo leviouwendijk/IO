@@ -200,6 +200,15 @@ package enum TestIO {
         .init(name: "filesystem-native-path-substrate", body: testNativePathSubstrate),
         .init(name: "filesystem-c-directory-inspector-strategy", body: testCDirectoryInspectorStrategy),
         .init(name: "filesystem-error-model", body: testFileSystemErrorModel),
+        .init(name: "filesystem-mutation-create-remove-equivalence", body: testFileSystemMutationCreateRemoveEquivalence),
+        .init(name: "filesystem-mutation-copy-equivalence", body: testFileSystemMutationCopyEquivalence),
+        .init(name: "filesystem-mutation-move-equivalence", body: testFileSystemMutationMoveEquivalence),
+        .init(name: "filesystem-mutation-replace-equivalence", body: testFileSystemMutationReplaceEquivalence),
+        .init(name: "filesystem-mutation-failure-postconditions", body: testFileSystemMutationFailurePostconditions),
+        .init(name: "filesystem-resolution-reference-equivalence", body: testFileSystemResolutionReferenceEquivalence),
+        .init(name: "filesystem-resolution-native-candidate-equivalence", body: testNativeResolutionCandidates),
+        .init(name: "filesystem-resolution-component-adaptive-equivalence", body: testComponentAdaptiveResolutionCandidate),
+        .init(name: "filesystem-resolution-readlink-dispatch-equivalence", body: testReadlinkDispatchResolutionCandidate),
         ]
     }
 
@@ -313,6 +322,19 @@ package enum TestIO {
             || options.contains("--filesystem-compare-heavy")
             || options.contains("--filesystem-enumeration-decompose")
             || options.contains("--filesystem-enumeration-decompose-heavy")
+            || options.contains("--filesystem-mutation-compare")
+            || options.contains("--filesystem-mutation-compare-heavy")
+            || options.contains("--filesystem-resolve-characterize")
+            || options.contains("--filesystem-resolve-compare")
+            || options.contains("--filesystem-resolve-compare-heavy")
+            || options.contains("--filesystem-resolve-decompose")
+            || options.contains("--filesystem-resolve-decompose-heavy")
+            || options.contains("--filesystem-resolve-native-candidates")
+            || options.contains("--filesystem-resolve-native-candidates-heavy")
+            || options.contains("--filesystem-resolve-component-adaptive")
+            || options.contains("--filesystem-resolve-component-adaptive-heavy")
+            || options.contains("--filesystem-resolve-readlink-dispatch")
+            || options.contains("--filesystem-resolve-readlink-dispatch-heavy")
         {
             try runFileSystemBenchmarkIfRequested(
                 arguments: arguments
@@ -427,6 +449,83 @@ package enum TestIO {
         arguments: [String]
     ) throws {
         let options = Set(arguments)
+
+        if options.contains("--filesystem-resolve-characterize") {
+            try runFileSystemResolutionCharacterization()
+            return
+        }
+
+        if options.contains("--filesystem-resolve-readlink-dispatch")
+            || options.contains("--filesystem-resolve-readlink-dispatch-heavy")
+        {
+            try runReadlinkDispatchResolutionBenchmarks(
+                heavy:
+                    options.contains(
+                        "--filesystem-resolve-readlink-dispatch-heavy"
+                    )
+            )
+            return
+        }
+
+        if options.contains("--filesystem-resolve-component-adaptive")
+            || options.contains("--filesystem-resolve-component-adaptive-heavy")
+        {
+            try runComponentAdaptiveResolutionBenchmarks(
+                heavy:
+                    options.contains(
+                        "--filesystem-resolve-component-adaptive-heavy"
+                    )
+            )
+            return
+        }
+
+        if options.contains("--filesystem-resolve-native-candidates")
+            || options.contains("--filesystem-resolve-native-candidates-heavy")
+        {
+            try runNativeResolutionCandidateBenchmarks(
+                heavy:
+                    options.contains(
+                        "--filesystem-resolve-native-candidates-heavy"
+                    )
+            )
+            return
+        }
+
+        if options.contains("--filesystem-resolve-decompose")
+            || options.contains("--filesystem-resolve-decompose-heavy")
+        {
+            try runFileSystemResolutionDecompositionBenchmarks(
+                heavy:
+                    options.contains(
+                        "--filesystem-resolve-decompose-heavy"
+                    )
+            )
+            return
+        }
+
+        if options.contains("--filesystem-resolve-compare")
+            || options.contains("--filesystem-resolve-compare-heavy")
+        {
+            try runFileSystemResolutionComparisonBenchmarks(
+                heavy:
+                    options.contains(
+                        "--filesystem-resolve-compare-heavy"
+                    )
+            )
+            return
+        }
+
+        if options.contains("--filesystem-mutation-compare")
+            || options.contains("--filesystem-mutation-compare-heavy")
+        {
+            try runFileSystemMutationComparisonBenchmarks(
+                heavy:
+                    options.contains(
+                        "--filesystem-mutation-compare-heavy"
+                    )
+            )
+            return
+        }
 
         if options.contains("--filesystem-enumeration-decompose")
             || options.contains("--filesystem-enumeration-decompose-heavy")

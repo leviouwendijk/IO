@@ -12,10 +12,10 @@ public struct FileSystem: Sendable {
         implementation: .foundation
     )
 
-    /// C/POSIX-backed read-side implementation. Metadata,
-    /// enumeration, existence, and emptiness probes use native
-    /// C/POSIX interfaces; filesystem mutation remains
-    /// Foundation-backed for now.
+    /// C/POSIX-backed filesystem implementation. Metadata,
+    /// enumeration, existence, emptiness probes, and canonical
+    /// symlink resolution use native C/POSIX interfaces;
+    /// filesystem mutation remains Foundation-backed for now.
     public static let c = Self(
         implementation: .c
     )
@@ -99,9 +99,17 @@ public struct FileSystem: Sendable {
     public func resolve(
         _ url: URL
     ) -> URL {
-        url
-            .resolvingSymlinksInPath()
-            .standardizedFileURL
+        switch implementation {
+        case .foundation:
+            return url
+                .resolvingSymlinksInPath()
+                .standardizedFileURL
+
+        case .c:
+            return NativeFileSystem.resolve(
+                url
+            )
+        }
     }
 }
 

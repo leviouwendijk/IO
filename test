@@ -1,6 +1,8 @@
 #!/bin/zsh
 
 (
-    swift run -c release tio_fs --filesystem-enumeration-decompose-heavy;
-    swift run -c release tio_fs --filesystem-compare-heavy;
+    # swift run -c release tio_fs --filesystem-enumeration-decompose-heavy;
+    # swift run -c release tio_fs --filesystem-compare-heavy;
+    swift run -c release tio_fs --filesystem-mutation-compare-heavy
+    swift run -c release tio_fs --filesystem-resolve-characterize
 )
