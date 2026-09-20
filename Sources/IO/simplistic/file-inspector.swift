@@ -2,14 +2,23 @@ import Foundation
 
 public struct FileInspector: Sendable {
     public let url: URL
+    public let fileSystem: FileSystem
 
     public init(
-        _ url: URL
+        _ url: URL,
+        fileSystem: FileSystem = .default
     ) {
         self.url = url.standardizedFileURL
+        self.fileSystem = fileSystem
     }
 
     public func inspect() throws -> FileMetadataSnapshot {
+        if case .c = fileSystem.implementation {
+            return try NativeFileSystem.inspect(
+                url
+            )
+        }
+
         let attributes: [FileAttributeKey: Any]
 
         do {
@@ -28,6 +37,14 @@ public struct FileInspector: Sendable {
                     identity: nil,
                     kind: nil
                 )
+            }
+
+            if let error = FileSystemError.wrapping(
+                error,
+                operation: .inspect,
+                url: url
+            ) {
+                throw error
             }
 
             throw FileInspectionError.io(

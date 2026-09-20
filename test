@@ -1,0 +1,6 @@
+#!/bin/zsh
+
+(
+    swift run -c release tio_fs --filesystem-enumeration-decompose-heavy;
+    swift run -c release tio_fs --filesystem-compare-heavy;
+)

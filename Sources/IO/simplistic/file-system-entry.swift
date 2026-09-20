@@ -17,4 +17,12 @@ public struct FileSystemEntry:
         self.kind =
             kind
     }
+
+    package init(
+        standardizedURL url: URL,
+        kind: FileKind
+    ) {
+        self.url = url
+        self.kind = kind
+    }
 }

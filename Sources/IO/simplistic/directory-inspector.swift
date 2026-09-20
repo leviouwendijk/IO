@@ -13,12 +13,14 @@ public struct DirectoryInspector: Sendable {
     }
 
     public func entries() throws -> [FileMetadataSnapshot] {
-        let urls: [URL]
+        let entries: [FileSystemEntry]
 
         do {
-            urls = try fileSystem.directory.contents(
+            entries = try fileSystem.directory.entries(
                 url
             )
+        } catch let error as FileSystemError {
+            throw error
         } catch {
             throw DirectoryInspectionError.io(
                 url,
@@ -26,13 +28,14 @@ public struct DirectoryInspector: Sendable {
             )
         }
 
-        return try urls
+        return try entries
             .sorted {
-                $0.path < $1.path
+                $0.url.path < $1.url.path
             }
             .map {
                 try FileInspector(
-                    $0
+                    $0.url,
+                    fileSystem: fileSystem
                 ).inspect()
             }
     }
