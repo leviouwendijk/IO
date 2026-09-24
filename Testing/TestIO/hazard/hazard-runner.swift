@@ -125,8 +125,10 @@ enum HazardRunner {
     /// any of them reports anything other than ABSENT.
     ///
     /// Cluster 1 (memory and process safety): #1, #2, #3b, #8b.
-    /// Cluster 2 (execution): #4, #5, #6. #3a stays ungated: its stress probe can
-    /// only report PRESENT or INCONCLUSIVE, never ABSENT.
+    /// Cluster 2 (execution): #4, #5, #6.
+    /// #3a is gated through the deterministic `reactor-wake-after-shutdown` probe;
+    /// the `reactor-shutdown-wake-churn` stress probe stays ungated because it can
+    /// only report PRESENT or INCONCLUSIVE.
     /// Cluster 3 (progress accounting): #7a, #9, #10.
     /// Cluster 4 (descriptors and filesystem): #11, deep-tree removal, replace
     /// permission window, line fingerprint structure.
@@ -155,6 +157,7 @@ enum HazardRunner {
         "deep-tree-remove-descriptor-limit",
         "replace-permission-window",
         "line-fingerprint-structure",
+        "reactor-wake-after-shutdown",
     ]
 
     static var probes: [HazardProbe] {

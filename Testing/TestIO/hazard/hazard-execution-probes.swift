@@ -65,6 +65,11 @@ enum HZExecutionProbes {
                 onTimeout: .inconclusive("stress probe exceeded its time budget"),
                 body: { try await reactorShutdownWakeChurn() }
             ),
+            .init(
+                "reactor-wake-after-shutdown",
+                finding: "#3a",
+                body: { try reactorWakeAfterShutdown() }
+            ),
         ]
     }
 
@@ -279,6 +284,104 @@ enum HZExecutionProbes {
 
             return .inconclusive("caller failed with \(error) before the operation produced")
         }
+    }
+
+    /// Deterministic #3a check. The race needed a late `wake()` to write into a wake
+    /// pipe already closed, and possibly reused, by shutdown. Asserts that after
+    /// `shutdown()` the pipe descriptors still name the same FIFOs, no newly opened
+    /// file receives their numbers or any byte from repeated `wake()` calls, and the
+    /// descriptors close only once the runtime is released.
+    static func reactorWakeAfterShutdown() throws -> HazardOutcome {
+        let directory = try HZ.makeTemporaryDirectory("wake-after-shutdown")
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        var runtime: EventedIORuntime? = try EventedIORuntime()
+        let pipe = runtime!.wakePipeDescriptorsForTesting
+
+        guard let readIdentity = fifoIdentity(pipe.read),
+              let writeIdentity = fifoIdentity(pipe.write)
+        else {
+            return .inconclusive("wake pipe descriptors were not FIFOs before shutdown")
+        }
+
+        HZ.step("shutdown, then let the reactor thread exit")
+        runtime!.shutdown()
+        usleep(50_000)
+
+        guard fifoIdentity(pipe.read) == readIdentity,
+              fifoIdentity(pipe.write) == writeIdentity
+        else {
+            return .present("shutdown closed or replaced the wake pipe while the reactor was still reachable")
+        }
+
+        HZ.step("open fresh files, then wake 1000 times after shutdown")
+        var fresh: [Int32] = []
+        defer { fresh.forEach { _ = Darwin.close($0) } }
+
+        for index in 0..<16 {
+            let descriptor = Darwin.open(
+                directory.appendingPathComponent("fresh-\(index)").path,
+                O_RDWR | O_CREAT | O_TRUNC | O_CLOEXEC,
+                mode_t(0o600)
+            )
+
+            guard descriptor >= 0 else {
+                return .inconclusive("could not open fresh file: errno \(errno)")
+            }
+
+            if descriptor == pipe.read || descriptor == pipe.write {
+                return .present("a freshly opened file received wake-pipe descriptor \(descriptor) after shutdown")
+            }
+
+            fresh.append(descriptor)
+        }
+
+        for _ in 0..<1_000 {
+            runtime!.wakeForTesting()
+        }
+
+        for descriptor in fresh {
+            var info = stat()
+
+            if Darwin.fstat(descriptor, &info) == 0, info.st_size > 0 {
+                return .present("a late wake() wrote into freshly opened descriptor \(descriptor)")
+            }
+        }
+
+        guard fifoIdentity(pipe.write) == writeIdentity else {
+            return .present("wake pipe changed identity during late wake() calls")
+        }
+
+        HZ.step("release the runtime")
+        runtime = nil
+
+        for _ in 0..<100 {
+            if fifoIdentity(pipe.read) != readIdentity,
+               fifoIdentity(pipe.write) != writeIdentity
+            {
+                return .absent(
+                    "wake pipe stayed owned through shutdown and 1000 late wakes; no fresh descriptor was affected; closed on release"
+                )
+            }
+
+            usleep(10_000)
+        }
+
+        return .inconclusive("wake pipe was still open 1 s after the runtime was released")
+    }
+
+    private static func fifoIdentity(
+        _ descriptor: Int32
+    ) -> String? {
+        var info = stat()
+
+        guard Darwin.fstat(descriptor, &info) == 0,
+              info.st_mode & mode_t(S_IFMT) == mode_t(S_IFIFO)
+        else {
+            return nil
+        }
+
+        return "\(info.st_dev):\(info.st_ino)"
     }
 
     /// Races `shutdown()` against wait registration while another thread

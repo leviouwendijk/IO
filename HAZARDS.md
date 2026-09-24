@@ -244,3 +244,28 @@ but a stress probe cannot prove absence, so it stays outside the gate.
   The `lstat` + `rename` path remains only as a fallback for `ENOSYS`/`EINVAL`/missing symbol.
 - Verification gap: the harness is Darwin-only and this cluster's build compiles only the
   Darwin branch. The Glibc branch is unbuilt and unprobed until a Linux run exists.
+
+## Cluster 6: deterministic #3a check
+
+- The cluster 2 repair made the wake pipe close only in the reactor's `deinit`. Because `wake()`
+  is an instance method, a running `wake()` keeps the reactor alive, so the descriptors cannot
+  be closed or reused under it. The stress probe could never show that.
+- `reactor-wake-after-shutdown` checks it directly through package-only hooks on
+  `EventedIORuntime` (`wakePipeDescriptorsForTesting`, `wakeForTesting`): after `shutdown()`
+  the pipe descriptors keep their FIFO identity, 16 freshly opened files never receive their
+  numbers, 1000 late `wake()` calls write nothing into those files, and the pipe closes only
+  after the runtime is released. The probe is gated; `reactor-shutdown-wake-churn` stays as an
+  ungated stress characterization.
+
+### Cluster 6 run (2026-09-24, debug, arm64e macOS)
+
+`tio_hazard`: 0 present, 25 absent, 1 inconclusive. `tio_hazard_gate`: passed, 25/25 ABSENT.
+`tio_exec` 20/20.
+
+| Probe | Verdict | Observation |
+| --- | --- | --- |
+| `reactor-wake-after-shutdown` | ABSENT | wake pipe kept its identity through shutdown and 1000 late wakes; no fresh descriptor affected; closed on release |
+| `reactor-shutdown-wake-churn` | INCONCLUSIVE | ungated stress characterization; no stray write across 400 races |
+
+Every audit finding now has a gated probe. Open outside the harness: the cluster 5 Glibc
+branch is unbuilt and unprobed, and Atomos is still pinned to `branch: "master"`.

@@ -59,6 +59,19 @@ public final class EventedIORuntime:
         reactor.shutdown()
     }
 
+    /// Hazard-harness hook (#3a): the reactor's wake pipe `(read, write)`.
+    /// Not API; exposed so a probe can check the descriptors stay owned until
+    /// the reactor is deinitialized.
+    package var wakePipeDescriptorsForTesting: (read: Int32, write: Int32) {
+        reactor.wakePipeDescriptors
+    }
+
+    /// Hazard-harness hook (#3a): performs the reactor's internal `wake()`, as a
+    /// late waiter registration or cancellation would after shutdown.
+    package func wakeForTesting() {
+        reactor.wakeForTesting()
+    }
+
     public func monotonicNanoseconds()
         -> UInt64
     {
@@ -285,6 +298,14 @@ private final class EventedIOReactor:
         systemClose(
             wakeWrite
         )
+    }
+
+    var wakePipeDescriptors: (read: Int32, write: Int32) {
+        (wakeRead, wakeWrite)
+    }
+
+    func wakeForTesting() {
+        wake()
     }
 
     func start() {
