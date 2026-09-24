@@ -58,10 +58,44 @@ let package = Package(
                 "tio_fs",
             ]
         ),
+        .executable(
+            name: "tio_exec",
+            targets: [
+                "tio_exec",
+            ]
+        ),
+        .executable(
+            name: "tio_hazard",
+            targets: [
+                "tio_hazard",
+            ]
+        ),
+        .executable(
+            name: "tio_hazard_gate",
+            targets: [
+                "tio_hazard_gate",
+            ]
+        ),
+    ],
+    dependencies: [
+        .package(
+            url: "https://github.com/leviouwendijk/Atomos.git",
+            branch: "master"
+        ),
     ],
     targets: [
         .target(
-            name: "IO"
+            name: "IO",
+            dependencies: [
+                .product(
+                    name: "Atomos",
+                    package: "Atomos"
+                ),
+            ],
+            swiftSettings: [
+                .enableExperimentalFeature("LifetimeDependence"),
+                .enableExperimentalFeature("Lifetimes"),
+            ]
         ),
 
         // testing targets
@@ -121,5 +155,45 @@ let package = Package(
             ],
             path: "Testing/tio_fs"
         ),
+        .executableTarget(
+            name: "tio_exec",
+            dependencies: [
+                "TestIO",
+            ],
+            path: "Testing/tio_exec"
+        ),
+        .executableTarget(
+            name: "tio_hazard",
+            dependencies: [
+                "TestIO",
+            ],
+            path: "Testing/tio_hazard"
+        ),
+        .executableTarget(
+            name: "tio_hazard_gate",
+            dependencies: [
+                "TestIO",
+            ],
+            path: "Testing/tio_hazard_gate"
+        ),
     ]
 )
+
+for target in package.targets {
+    switch target.type {
+    case .regular, .executable, .test, .macro:
+        var settings = target.swiftSettings ?? []
+
+        settings.append(
+            .treatAllWarnings(as: .error)
+        )
+
+        target.swiftSettings = settings
+
+    case .plugin, .system, .binary:
+        break
+
+    @unknown default:
+        break
+    }
+}

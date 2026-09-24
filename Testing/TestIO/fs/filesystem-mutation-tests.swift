@@ -94,6 +94,72 @@ extension TestIO {
         )
 
         try compareMutationScenario(
+            "create-intermediates-existing-file",
+            setup: { root in
+                try mutationWrite(
+                    root.appendingPathComponent(
+                        "existing"
+                    ),
+                    bytes:
+                        Array(
+                            "file".utf8
+                        )
+                )
+            },
+            operation: { fileSystem, root in
+                try fileSystem.directory.create(
+                    root.appendingPathComponent(
+                        "existing",
+                        isDirectory: true
+                    ),
+                    intermediates: true
+                )
+            }
+        )
+
+        try compareMutationScenario(
+            "create-intermediates-through-symlink-parent",
+            setup: { root in
+                try FileManager.default.createDirectory(
+                    at: root.appendingPathComponent(
+                        "physical",
+                        isDirectory: true
+                    ),
+                    withIntermediateDirectories: false
+                )
+
+                try FileManager.default.createSymbolicLink(
+                    atPath:
+                        root
+                            .appendingPathComponent(
+                                "link"
+                            )
+                            .path,
+                    withDestinationPath:
+                        "physical"
+                )
+            },
+            operation: { fileSystem, root in
+                try fileSystem.directory.create(
+                    root
+                        .appendingPathComponent(
+                            "link",
+                            isDirectory: true
+                        )
+                        .appendingPathComponent(
+                            "child",
+                            isDirectory: true
+                        )
+                        .appendingPathComponent(
+                            "grandchild",
+                            isDirectory: true
+                        ),
+                    intermediates: true
+                )
+            }
+        )
+
+        try compareMutationScenario(
             "create-directory-attributes",
             setup: { _ in },
             operation: { fileSystem, root in
@@ -156,6 +222,88 @@ extension TestIO {
                     isDirectory: true
                 )
                 try mutationMakeTree(tree)
+            },
+            operation: { fileSystem, root in
+                try fileSystem.remove(
+                    root.appendingPathComponent(
+                        "tree",
+                        isDirectory: true
+                    )
+                )
+            }
+        )
+
+        try compareMutationScenario(
+            "remove-tree-does-not-follow-directory-symlink",
+            setup: { root in
+                let outside =
+                    root.appendingPathComponent(
+                        "outside",
+                        isDirectory: true
+                    )
+
+                try FileManager.default.createDirectory(
+                    at: outside,
+                    withIntermediateDirectories:
+                        false
+                )
+
+                try mutationWrite(
+                    outside.appendingPathComponent(
+                        "keep.txt"
+                    ),
+                    bytes:
+                        Array(
+                            "keep".utf8
+                        )
+                )
+
+                let tree =
+                    root.appendingPathComponent(
+                        "tree",
+                        isDirectory: true
+                    )
+                let nested =
+                    tree
+                        .appendingPathComponent(
+                            "a",
+                            isDirectory: true
+                        )
+                        .appendingPathComponent(
+                            "b",
+                            isDirectory: true
+                        )
+                        .appendingPathComponent(
+                            "c",
+                            isDirectory: true
+                        )
+
+                try FileManager.default.createDirectory(
+                    at: nested,
+                    withIntermediateDirectories:
+                        true
+                )
+
+                try mutationWrite(
+                    nested.appendingPathComponent(
+                        "payload.bin"
+                    ),
+                    bytes:
+                        mutationPayload(
+                            count: 513
+                        )
+                )
+
+                try FileManager.default.createSymbolicLink(
+                    atPath:
+                        tree
+                            .appendingPathComponent(
+                                "outside-link"
+                            )
+                            .path,
+                    withDestinationPath:
+                        "../outside"
+                )
             },
             operation: { fileSystem, root in
                 try fileSystem.remove(
@@ -359,7 +507,115 @@ extension TestIO {
                 )
             }
         )
+
+        try compareMutationScenario(
+            "copy-lexical-dotdot",
+            setup: { root in
+                try FileManager.default.createDirectory(
+                    at: root.appendingPathComponent(
+                        "directory",
+                        isDirectory: true
+                    ),
+                    withIntermediateDirectories: false
+                )
+                try mutationWrite(
+                    root.appendingPathComponent("source"),
+                    bytes: mutationPayload(count: 4096)
+                )
+            },
+            operation: { fileSystem, root in
+                try fileSystem.copy(
+                    URL(
+                        fileURLWithPath:
+                            root.path
+                            + "/directory/../source"
+                    ),
+                    to: URL(
+                        fileURLWithPath:
+                            root.path
+                            + "/directory/../destination"
+                    )
+                )
+            }
+        )
+
+        #if canImport(Darwin)
+        try testFileSystemMutationRichDirectoryCopyProduction()
+        #endif
     }
+
+    #if canImport(Darwin)
+    static func testFileSystemMutationRichDirectoryCopyProduction() throws {
+        let root = temporaryFileSystemRoot(
+            prefix: "io-fs-copy-rich-production"
+        )
+        let foundationSource =
+            root.appendingPathComponent(
+                "foundation-source",
+                isDirectory: true
+            )
+        let foundationDestination =
+            root.appendingPathComponent(
+                "foundation-destination",
+                isDirectory: true
+            )
+        let nativeSource =
+            root.appendingPathComponent(
+                "native-source",
+                isDirectory: true
+            )
+        let nativeDestination =
+            root.appendingPathComponent(
+                "native-destination",
+                isDirectory: true
+            )
+
+        try FileManager.default.createDirectory(
+            at: root,
+            withIntermediateDirectories: true
+        )
+        defer {
+            try? FileManager.default.removeItem(
+                at: root
+            )
+        }
+
+        try mutationTreeCopyPrepareRichTree(
+            foundationSource
+        )
+        try mutationTreeCopyPrepareRichTree(
+            nativeSource
+        )
+
+        try FileSystem.foundation.copy(
+            foundationSource,
+            to: foundationDestination
+        )
+        try FileSystem.c.copy(
+            nativeSource,
+            to: nativeDestination
+        )
+
+        let foundationObservation =
+            try mutationTreeCopySemanticObservation(
+                source: foundationSource,
+                destination:
+                    foundationDestination
+            )
+        let nativeObservation =
+            try mutationTreeCopySemanticObservation(
+                source: nativeSource,
+                destination:
+                    nativeDestination
+            )
+
+        try expectEqual(
+            nativeObservation,
+            foundationObservation,
+            "native production rich directory copy differs from Foundation"
+        )
+    }
+    #endif
 
     static func testFileSystemMutationMoveEquivalence() throws {
         try compareMutationScenario(
@@ -529,6 +785,67 @@ extension TestIO {
                 try fileSystem.replace(
                     root.appendingPathComponent("original"),
                     with: root.appendingPathComponent("replacement")
+                )
+            }
+        )
+
+        try compareMutationScenario(
+            "replace-preserves-original-permissions",
+            setup: { root in
+                let original =
+                    root.appendingPathComponent(
+                        "original"
+                    )
+                let replacement =
+                    root.appendingPathComponent(
+                        "replacement"
+                    )
+
+                try mutationWrite(
+                    original,
+                    bytes:
+                        Array(
+                            "original".utf8
+                        )
+                )
+                try FileManager.default.setAttributes(
+                    [
+                        .posixPermissions:
+                            NSNumber(
+                                value: 0o600
+                            ),
+                    ],
+                    ofItemAtPath:
+                        original.path
+                )
+
+                try mutationWrite(
+                    replacement,
+                    bytes:
+                        Array(
+                            "replacement".utf8
+                        )
+                )
+                try FileManager.default.setAttributes(
+                    [
+                        .posixPermissions:
+                            NSNumber(
+                                value: 0o644
+                            ),
+                    ],
+                    ofItemAtPath:
+                        replacement.path
+                )
+            },
+            operation: { fileSystem, root in
+                try fileSystem.replace(
+                    root.appendingPathComponent(
+                        "original"
+                    ),
+                    with:
+                        root.appendingPathComponent(
+                            "replacement"
+                        )
                 )
             }
         )

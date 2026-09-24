@@ -147,6 +147,15 @@ package enum TestIO {
         [
         .init(name: "stream-buffer-memmove-compaction", body: testStreamBufferMemmoveCompaction),
         .init(name: "destination-exact-capacity-bypass-policy", body: testDestinationExactCapacityBypassPolicy),
+        .init(name: "ring-state-storage-independence", body: testRingStateStorageIndependence),
+        .init(name: "borrowed-ring-storage-equivalence", body: testBorrowedRingStorageEquivalence),
+        .init(name: "borrowed-temporary-ring-storage-equivalence", body: testBorrowedTemporaryRingStorageEquivalence),
+        .init(name: "borrowed-destination-equivalence", body: testBorrowedDestinationEquivalence),
+        .init(name: "borrowed-destination-guard-bytes", body: testBorrowedDestinationGuardBytes),
+        .init(name: "borrowed-destination-backend-lifecycle", body: testBorrowedDestinationBackendLifecycle),
+        .init(name: "borrowed-source-equivalence", body: testBorrowedSourceEquivalence),
+        .init(name: "borrowed-source-guard-bytes", body: testBorrowedSourceGuardBytes),
+        .init(name: "borrowed-source-backend-lifecycle", body: testBorrowedSourceBackendLifecycle),
         .init(name: "ring-buffer-wraparound", body: testRingBufferWraparound),
         .init(name: "posix-vector-io", body: testPOSIXVectorIO),
         .init(name: "scripted-nonblocking-backpressure", body: testScriptedNonblockingBackpressure),
@@ -155,6 +164,7 @@ package enum TestIO {
         .init(name: "ring-socket-streams", body: testRingSocketStreams),
         .init(name: "deterministic-stream-decomposition-backends", body: testDeterministicStreamDecompositionBackends),
         .init(name: "dispatch-storage-decomposition-representations", body: testDispatchStorageDecompositionRepresentations),
+        .init(name: "dispatch-vtable-adapters", body: testDispatchVTableAdapters),
         ]
     }
 
@@ -172,6 +182,17 @@ package enum TestIO {
     private static var fileTests: [TestCase] {
         [
         .init(name: "system-file-source", body: testSystemFileSource),
+        .init(name: "system-file-destination-modes", body: testSystemFileDestinationModes),
+        .init(name: "system-file-destination-integration", body: testSystemFileDestinationWithDestination),
+        .init(name: "system-file-destination-vector-drain", body: testSystemFileDestinationVectorDrain),
+        .init(name: "system-file-destination-descriptor-lifecycle", body: testSystemFileDestinationDescriptorLifecycle),
+        .init(name: "system-file-destination-explicit-close", body: testSystemFileDestinationExplicitCloseIsIdempotent),
+        .init(name: "system-file-destination-closed-error", body: testSystemFileDestinationClosedError),
+        .init(name: "transfer-memory-to-file", body: testMemoryToFileTransfer),
+        .init(name: "transfer-file-to-memory", body: testFileToMemoryTransfer),
+        .init(name: "transfer-file-to-file", body: testFileToFileTransfer),
+        .init(name: "transfer-file-to-file-bounded-resume", body: testBoundedFileToFileTransferResume),
+        .init(name: "transfer-no-implicit-flush", body: testFileTransferDoesNotImplicitlyFlush),
         .init(name: "selection-unicode-fragmentation", body: testSelectionUnicodeFragmentation),
         .init(name: "selection-invalid-utf8", body: testSelectionInvalidUTF8),
         .init(name: "selection-long-line-bounds", body: testSelectionLongLineBounds),
@@ -201,9 +222,12 @@ package enum TestIO {
         .init(name: "filesystem-c-directory-inspector-strategy", body: testCDirectoryInspectorStrategy),
         .init(name: "filesystem-error-model", body: testFileSystemErrorModel),
         .init(name: "filesystem-mutation-create-remove-equivalence", body: testFileSystemMutationCreateRemoveEquivalence),
+        .init(name: "filesystem-native-simple-mutation-error-model", body: testNativeSimpleMutationErrorModel),
+        .init(name: "filesystem-native-simple-mutation-lexical-standardization", body: testNativeSimpleMutationLexicalStandardization),
         .init(name: "filesystem-mutation-copy-equivalence", body: testFileSystemMutationCopyEquivalence),
         .init(name: "filesystem-mutation-move-equivalence", body: testFileSystemMutationMoveEquivalence),
         .init(name: "filesystem-mutation-replace-equivalence", body: testFileSystemMutationReplaceEquivalence),
+        .init(name: "filesystem-mutation-replace-acl-equivalence", body: testFileSystemMutationReplaceACLEquivalence),
         .init(name: "filesystem-mutation-failure-postconditions", body: testFileSystemMutationFailurePostconditions),
         .init(name: "filesystem-resolution-reference-equivalence", body: testFileSystemResolutionReferenceEquivalence),
         .init(name: "filesystem-resolution-readlink-dispatch-equivalence", body: testReadlinkDispatchResolutionCandidate),
@@ -322,6 +346,20 @@ package enum TestIO {
             || options.contains("--filesystem-enumeration-decompose-heavy")
             || options.contains("--filesystem-mutation-compare")
             || options.contains("--filesystem-mutation-compare-heavy")
+            || options.contains("--filesystem-mutation-copy-characterize")
+            || options.contains("--filesystem-mutation-copy-characterize-heavy")
+            || options.contains("--filesystem-mutation-create-decompose")
+            || options.contains("--filesystem-mutation-create-decompose-heavy")
+            || options.contains("--filesystem-mutation-create-strategy")
+            || options.contains("--filesystem-mutation-create-strategy-heavy")
+            || options.contains("--filesystem-mutation-create-production-decompose")
+            || options.contains("--filesystem-mutation-create-production-decompose-heavy")
+            || options.contains("--filesystem-mutation-replace-characterize")
+            || options.contains("--filesystem-mutation-replace-characterize-heavy")
+            || options.contains("--filesystem-mutation-replace-metadata-characterize")
+            || options.contains("--filesystem-mutation-replace-darwin-metadata-characterize")
+            || options.contains("--filesystem-mutation-replace-selective")
+            || options.contains("--filesystem-mutation-replace-selective-heavy")
             || options.contains("--filesystem-resolve-characterize")
             || options.contains("--filesystem-resolve-compare")
             || options.contains("--filesystem-resolve-compare-heavy")
@@ -364,6 +402,33 @@ package enum TestIO {
         {
             try runDispatchStorageDecompositionBenchmarks(
                 heavy: options.contains("--dispatch-storage-decompose-heavy")
+            )
+            return
+        }
+
+        if options.contains("--dispatch-vtable")
+            || options.contains("--dispatch-vtable-heavy")
+        {
+            try runDispatchVTableBenchmarks(
+                heavy: options.contains("--dispatch-vtable-heavy")
+            )
+            return
+        }
+
+        if options.contains("--production-ring-generic")
+            || options.contains("--production-ring-generic-heavy")
+        {
+            try runProductionRingGenericBenchmarks(
+                heavy: options.contains("--production-ring-generic-heavy")
+            )
+            return
+        }
+
+        if options.contains("--specialized-transfer")
+            || options.contains("--specialized-transfer-heavy")
+        {
+            try runSpecializedTransferBenchmarks(
+                heavy: options.contains("--specialized-transfer-heavy")
             )
             return
         }
@@ -508,6 +573,90 @@ package enum TestIO {
                 heavy:
                     options.contains(
                         "--filesystem-resolve-compare-heavy"
+                    )
+            )
+            return
+        }
+
+        if options.contains("--filesystem-mutation-copy-characterize")
+            || options.contains("--filesystem-mutation-copy-characterize-heavy")
+        {
+            try runFileSystemMutationCopyCharacterization(
+                heavy:
+                    options.contains(
+                        "--filesystem-mutation-copy-characterize-heavy"
+                    )
+            )
+            return
+        }
+
+        if options.contains("--filesystem-mutation-replace-selective")
+            || options.contains("--filesystem-mutation-replace-selective-heavy")
+        {
+            try runFileSystemMutationReplaceSelectiveCandidate(
+                heavy:
+                    options.contains(
+                        "--filesystem-mutation-replace-selective-heavy"
+                    )
+            )
+            return
+        }
+
+        if options.contains("--filesystem-mutation-replace-darwin-metadata-characterize")
+        {
+            try runFileSystemMutationReplaceDarwinMetadataCharacterization()
+            return
+        }
+
+        if options.contains("--filesystem-mutation-replace-metadata-characterize")
+        {
+            try runFileSystemMutationReplaceMetadataCharacterization()
+            return
+        }
+
+        if options.contains("--filesystem-mutation-replace-characterize")
+            || options.contains("--filesystem-mutation-replace-characterize-heavy")
+        {
+            try runFileSystemMutationReplaceCharacterization(
+                heavy:
+                    options.contains(
+                        "--filesystem-mutation-replace-characterize-heavy"
+                    )
+            )
+            return
+        }
+
+        if options.contains("--filesystem-mutation-create-production-decompose")
+            || options.contains("--filesystem-mutation-create-production-decompose-heavy")
+        {
+            try runFileSystemMutationCreateProductionDecompositionBenchmarks(
+                heavy:
+                    options.contains(
+                        "--filesystem-mutation-create-production-decompose-heavy"
+                    )
+            )
+            return
+        }
+
+        if options.contains("--filesystem-mutation-create-strategy")
+            || options.contains("--filesystem-mutation-create-strategy-heavy")
+        {
+            try runFileSystemMutationCreateStrategyBenchmarks(
+                heavy:
+                    options.contains(
+                        "--filesystem-mutation-create-strategy-heavy"
+                    )
+            )
+            return
+        }
+
+        if options.contains("--filesystem-mutation-create-decompose")
+            || options.contains("--filesystem-mutation-create-decompose-heavy")
+        {
+            try runFileSystemMutationCreateDecompositionBenchmarks(
+                heavy:
+                    options.contains(
+                        "--filesystem-mutation-create-decompose-heavy"
                     )
             )
             return

@@ -28,6 +28,26 @@ extension TestIO {
             moduleSearchPath: moduleSearchPath
         )
 
+        try expectTypechecks(
+            name: "positive-borrowed-lifetime-control",
+            source: """
+            import IO
+
+            func inspect(
+                _ ring: borrowing BorrowedStreamRingBuffer,
+                _ source: borrowing BorrowedSource,
+                _ destination: borrowing BorrowedDestination
+            ) {
+                let io = IO.blocking
+                _ = io
+                _ = ring.capacity
+                _ = source.bufferedByteCount
+                _ = destination.bufferedByteCount
+            }
+            """,
+            moduleSearchPath: moduleSearchPath
+        )
+
         let noncopyableTypes = [
             "Source",
             "Destination",
@@ -64,6 +84,60 @@ extension TestIO {
 
             struct InvalidWrapper: Copyable {
                 var source: Source
+            }
+            """,
+            moduleSearchPath: moduleSearchPath
+        )
+
+        try expectTypecheckFailure(
+            name: "BorrowedStreamRingBuffer-cannot-escape-temporary-storage",
+            source: """
+            import IO
+
+            func probe() {
+                let ring =
+                    withUnsafeTemporaryAllocation(
+                        of: UInt8.self,
+                        capacity: 8
+                    ) {
+                        storage in
+
+                        let raw =
+                            UnsafeMutableRawBufferPointer(
+                                start: storage.baseAddress,
+                                count: storage.count
+                            )
+
+                        return BorrowedStreamRingBuffer(
+                            storage: raw
+                        )
+                    }
+
+                _ = ring
+            }
+            """,
+            moduleSearchPath: moduleSearchPath
+        )
+
+        try expectTypecheckFailure(
+            name: "BorrowedDestination-cannot-live-in-escapable-wrapper",
+            source: """
+            import IO
+
+            struct InvalidWrapper: ~Copyable {
+                var destination: BorrowedDestination
+            }
+            """,
+            moduleSearchPath: moduleSearchPath
+        )
+
+        try expectTypecheckFailure(
+            name: "BorrowedSource-cannot-live-in-escapable-wrapper",
+            source: """
+            import IO
+
+            struct InvalidWrapper: ~Copyable {
+                var source: BorrowedSource
             }
             """,
             moduleSearchPath: moduleSearchPath
@@ -177,6 +251,12 @@ extension TestIO {
             "-typecheck",
             "-I",
             moduleSearchPath.path,
+            "-package-name",
+            "io",
+            "-enable-experimental-feature",
+            "LifetimeDependence",
+            "-enable-experimental-feature",
+            "Lifetimes",
             file.path,
         ]
 
