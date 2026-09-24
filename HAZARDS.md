@@ -234,3 +234,13 @@ Gate grows by the four remaining probes; only `reactor-shutdown-wake-churn` stay
 
 Only `reactor-shutdown-wake-churn` (#3a) remains INCONCLUSIVE: structurally repaired in cluster 2,
 but a stress probe cannot prove absence, so it stays outside the gate.
+
+## Cluster 5: Linux no-replace move
+
+- Linux `FileSystem.c.move` previously checked the destination with `lstat` and then called
+  plain `rename(2)`, which replaces; a destination created in between was silently
+  overwritten. `systemRenameNoReplace` now uses `renameat2(RENAME_NOREPLACE)` (resolved with
+  `dlsym`, since the Glibc module does not import it), which fails atomically with `EEXIST`.
+  The `lstat` + `rename` path remains only as a fallback for `ENOSYS`/`EINVAL`/missing symbol.
+- Verification gap: the harness is Darwin-only and this cluster's build compiles only the
+  Darwin branch. The Glibc branch is unbuilt and unprobed until a Linux run exists.

@@ -273,40 +273,6 @@ enum NativeFileSystemMutation {
                         return
                     }
 
-                    #if canImport(Glibc)
-                    // Plain Linux rename(2) replaces an existing destination.
-                    // Keep the explicit no-replace preflight until a
-                    // renameat2(RENAME_NOREPLACE) specialization lands.
-                    var destinationInfo =
-                        stat()
-
-                    if systemLstat(
-                        destinationPointer,
-                        &destinationInfo
-                    ) == 0
-                    {
-                        throw FileSystemError(
-                            operation: .move,
-                            url: destination,
-                            errno: EEXIST
-                        )
-                    }
-
-                    let destinationCode =
-                        errno
-
-                    guard destinationCode
-                            == ENOENT
-                    else {
-                        throw FileSystemError(
-                            operation: .move,
-                            url: destination,
-                            errno:
-                                destinationCode
-                        )
-                    }
-                    #endif
-
                     let result =
                         systemRenameNoReplace(
                             sourcePointer,
@@ -2401,6 +2367,41 @@ private func systemApplyExtendedACL(
 }
 #endif
 
+#if canImport(Glibc)
+private typealias LinuxRenameAt2 = @convention(c) (
+    Int32,
+    UnsafePointer<CChar>?,
+    Int32,
+    UnsafePointer<CChar>?,
+    UInt32
+) -> Int32
+
+/// `renameat2`, resolved at runtime: the Glibc module does not import it, and
+/// glibc before 2.28 does not export it.
+nonisolated(unsafe) private let linuxRenameAt2: LinuxRenameAt2? = {
+    guard let handle = dlopen(nil, RTLD_NOW),
+          let symbol = dlsym(handle, "renameat2")
+    else {
+        return nil
+    }
+
+    return unsafeBitCast(
+        symbol,
+        to: LinuxRenameAt2.self
+    )
+}()
+
+/// `RENAME_NOREPLACE` from <linux/fs.h>; not imported by the Glibc module.
+private let linuxRenameNoReplace: UInt32 = 1
+#endif
+
+/// Renames `source` to `destination`, failing with `EEXIST` instead of replacing
+/// an existing destination.
+///
+/// Darwin uses `renamex_np(RENAME_EXCL)`. Linux uses `renameat2(RENAME_NOREPLACE)`,
+/// which is atomic; only when the kernel, libc, or filesystem lacks it (`ENOSYS`,
+/// `EINVAL`, or no symbol) does it fall back to an `lstat` preflight plus `rename`,
+/// which narrows but cannot close the check-then-rename window.
 @inline(__always)
 private func systemRenameNoReplace(
     _ source:
@@ -2409,7 +2410,7 @@ private func systemRenameNoReplace(
         UnsafePointer<CChar>
 ) -> Int32 {
     #if canImport(Darwin)
-    Darwin.renamex_np(
+    return Darwin.renamex_np(
         source,
         destination,
         UInt32(
@@ -2417,9 +2418,43 @@ private func systemRenameNoReplace(
         )
     )
     #elseif canImport(Glibc)
-    // Linux portability retains the explicit destination preflight above.
-    // A later platform-specialization pass may adopt renameat2(RENAME_NOREPLACE).
-    Glibc.rename(
+    if let renameAt2 = linuxRenameAt2 {
+        let result = renameAt2(
+            AT_FDCWD,
+            source,
+            AT_FDCWD,
+            destination,
+            linuxRenameNoReplace
+        )
+
+        if result == 0 {
+            return 0
+        }
+
+        let code = errno
+
+        guard code == ENOSYS
+                || code == EINVAL
+        else {
+            return result
+        }
+    }
+
+    var destinationInfo = stat()
+
+    if Glibc.lstat(
+        destination,
+        &destinationInfo
+    ) == 0 {
+        errno = EEXIST
+        return -1
+    }
+
+    guard errno == ENOENT else {
+        return -1
+    }
+
+    return Glibc.rename(
         source,
         destination
     )
