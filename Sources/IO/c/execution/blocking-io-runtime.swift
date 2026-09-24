@@ -18,34 +18,17 @@ public final class BlockingIORuntime:
 {
     private let clock:
         MonotonicClock
-    private let epoch:
-        MonotonicClock.Instant
 
     public init() {
-        let clock =
-            MonotonicClock()
-
         self.clock =
-            clock
-        self.epoch =
-            clock.now
+            MonotonicClock()
     }
 
+    /// Reads the process-wide `IOMonotonicDomain` domain shared by every runtime.
     public func monotonicNanoseconds()
         -> UInt64
     {
-        let elapsed =
-            epoch.duration(
-                to: clock.now
-            )
-
-        guard elapsed.nanoseconds > 0 else {
-            return 0
-        }
-
-        return UInt64(
-            elapsed.nanoseconds
-        )
+        IOMonotonicDomain.nanoseconds()
     }
 
     public func submitBlocking(
@@ -102,6 +85,16 @@ public final class BlockingIORuntime:
         _ request:
             IOWaitRequest
     ) throws {
+        guard request.descriptor >= 0 else {
+            throw IOExecutionError
+                .invalid_descriptor
+        }
+
+        guard !request.interest.isEmpty else {
+            throw IOExecutionError
+                .invalid_interest
+        }
+
         var descriptor =
             pollfd(
                 fd:

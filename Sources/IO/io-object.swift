@@ -33,10 +33,14 @@ public struct IO: Sendable {
         )
     }
 
+    /// Deadline `duration` from now in the process-wide monotonic domain.
+    ///
+    /// The result is independent of this `IO`'s runtime and may be passed to any
+    /// other `IO` in the process.
     public func deadline(
         after duration: IODuration
     ) -> IODeadline {
-        let now = runtime.monotonicNanoseconds()
+        let now = IOMonotonicDomain.nanoseconds()
 
         guard duration.nanoseconds > 0 else {
             return .init(nanosecondsSinceRuntimeEpoch:
@@ -68,6 +72,16 @@ public struct IO: Sendable {
         deadline: IODeadline? = nil
     ) async throws {
         try Task.checkCancellation()
+
+        // Malformed requests can never complete: poll ignores negative
+        // descriptors and empty interest never becomes ready.
+        guard descriptor >= 0 else {
+            throw IOExecutionError.invalid_descriptor
+        }
+
+        guard !interest.isEmpty else {
+            throw IOExecutionError.invalid_interest
+        }
 
         let cancellation = IOCancellationSlot()
 
@@ -149,6 +163,11 @@ public struct IO: Sendable {
     /// The blocking reference runtime executes inline. An evented runtime with
     /// no workers executes this lane on its reactor thread; a hybrid evented
     /// runtime dispatches it to configured workers.
+    ///
+    /// Cancellation is checked only before submission. A submitted operation
+    /// cannot be interrupted, so once it has run its completion wins: the produced
+    /// value (which may own resources) is returned even if the calling task was
+    /// cancelled in the meantime.
     public func runBlocking<
         Result: Sendable
     >(
@@ -173,7 +192,6 @@ public struct IO: Sendable {
                 }
             }
 
-        try Task.checkCancellation()
         return value
     }
 

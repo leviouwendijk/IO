@@ -129,4 +129,46 @@ continuing would leave writes that raise SIGPIPE.
 - New probe `socket-peer-close-after-adopt` (#2) covers the realistic ordering:
   adopt a live socket, lose the peer, then write. It joins the gate.
 
-Cluster 1b run: _record `tio_hazard` and `tio_hazard_gate` output here._
+### Cluster 1b run (2026-09-24, debug, arm64e macOS)
+
+`tio_hazard`: 15 present, 9 absent, 1 inconclusive. `tio_hazard_gate`: passed, 9/9 ABSENT.
+`tio_core` 19/19, `tio_stream` 20/20, `tio_scan` 6/6, `tio_file` 19/19.
+
+All four socket/pipe broken-pipe probes surface `EPIPE` (errno 32) and survive; the
+adopted-after-shutdown sockets now take the refused-write path. `reactor-shutdown-wake-churn`
+was INCONCLUSIVE again (400 races, no observation); its cluster 1 SIGPIPE shows the race
+is timing-dependent, not absent.
+
+Baseline commit `fb64617`: explicit-IO restructure, hazard harness, and cluster 1/1b
+repairs, committed before cluster 2 so later diffs are reviewable.
+
+## Cluster 2: execution
+
+Findings #3a, #4, #5, #6. Gate grows by the eight wait/deadline/runBlocking probes.
+
+- #5 `IOMonotonicDomain`: one process-wide anchor on Atomos `MonotonicClock` replaces the
+  per-runtime epochs. `IO.deadline(after:)` reads it directly and both built-in runtimes
+  report it from `monotonicNanoseconds()`, so a deadline means the same instant on any
+  `IO`, including successive `IO.blocking` values.
+- #4 `IO.wait`, `BlockingIORuntime`, and the evented reactor reject negative descriptors
+  (`invalid_descriptor`) and empty interest (new `IOExecutionError.invalid_interest`)
+  before touching `poll`. The reactor's `precondition` is gone.
+- #6 `IO.runBlocking` checks cancellation only before submission; once the operation has
+  run, its value is returned even if the caller was cancelled.
+- #3a The reactor's wake pipe is closed in `deinit` instead of at the end of `run()`, so no
+  late `wake()` can write into a closed or reused descriptor. The stress probe stays
+  ungated because it can never prove absence.
+
+### Cluster 2 run (2026-09-24, debug, arm64e macOS)
+
+`tio_hazard`: 7 present, 17 absent, 1 inconclusive. `tio_hazard_gate`: passed, 17/17 ABSENT.
+`tio_exec` 20/20, `tio_core` 19/19, `tio_stream` 20/20, `tio_scan` 6/6, `tio_file` 19/19.
+
+| Probe | Verdict | Observation |
+| --- | --- | --- |
+| `wait-negative-fd-*` (3) | ABSENT | rejected with `invalid_descriptor` after 0.0 ms |
+| `wait-empty-interest-*` (2) | ABSENT | rejected with `invalid_interest` after 0.0 ms; no trap |
+| `cross-runtime-deadline` | ABSENT | 20 ms deadline waits ~21-22 ms in both directions |
+| `computed-blocking-runtime-deadline` | ABSENT | expired deadline returns after 0.1 ms |
+| `run-blocking-cancellation-completion` | ABSENT | already-running operation delivered 42 despite cancellation |
+| `reactor-shutdown-wake-churn` | INCONCLUSIVE | structural fix applied; stress probe cannot prove absence |

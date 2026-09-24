@@ -125,6 +125,8 @@ enum HazardRunner {
     /// any of them reports anything other than ABSENT.
     ///
     /// Cluster 1 (memory and process safety): #1, #2, #3b, #8b.
+    /// Cluster 2 (execution): #4, #5, #6. #3a stays ungated: its stress probe can
+    /// only report PRESENT or INCONCLUSIVE, never ABSENT.
     static let repairedProbeIDs: [String] = [
         "bounded-stream-wrapped-ring",
         "socket-peer-close-vector-write",
@@ -135,6 +137,14 @@ enum HazardRunner {
         "scanner-kernel-negative-index",
         "scanner-kernel-past-end-index",
         "scanner-kernel-backward-index",
+        "wait-negative-fd-blocking",
+        "wait-negative-fd-blocking-deadline",
+        "wait-negative-fd-evented",
+        "wait-empty-interest-blocking",
+        "wait-empty-interest-evented",
+        "cross-runtime-deadline",
+        "computed-blocking-runtime-deadline",
+        "run-blocking-cancellation-completion",
     ]
 
     static var probes: [HazardProbe] {

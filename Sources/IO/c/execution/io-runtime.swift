@@ -4,10 +4,40 @@ import Atomos
 public typealias IODuration =
     MonotonicClock.Duration
 
-/// Absolute deadline within one IORuntime monotonic domain.
+/// Process-wide monotonic domain for `IODeadline`, on Atomos `MonotonicClock`.
 ///
-/// The raw runtime-epoch value is deliberately package-only. Construct deadlines
-/// through `IO.deadline(after:)` so consumers do not depend on a runtime epoch.
+/// One anchor instant is shared by every runtime and every `IO` value, so a
+/// deadline created through one `IO` denotes the same instant on any other
+/// runtime in the process. Runtimes must not keep private epochs.
+package enum IOMonotonicDomain {
+    private static let clock =
+        MonotonicClock()
+    private static let anchor =
+        clock.now
+
+    package static func nanoseconds()
+        -> UInt64
+    {
+        let elapsed =
+            anchor.duration(
+                to: clock.now
+            )
+
+        guard elapsed.nanoseconds > 0 else {
+            return 0
+        }
+
+        return UInt64(
+            elapsed.nanoseconds
+        )
+    }
+}
+
+/// Absolute deadline in the process-wide `IOMonotonicDomain` domain.
+///
+/// A deadline created through any `IO` value is valid on every runtime in the
+/// process. The raw value is deliberately package-only; construct deadlines
+/// through `IO.deadline(after:)`.
 public struct IODeadline:
     Sendable,
     Hashable,
@@ -85,6 +115,8 @@ public enum IOExecutionError:
 {
     case timed_out
     case invalid_descriptor
+    /// A wait request named no readiness interest, so it could never complete.
+    case invalid_interest
     case cancelled
     case runtime_stopped
     case system_call_failed(
@@ -102,7 +134,10 @@ public protocol IORuntime:
     AnyObject,
     Sendable
 {
-    /// Monotonic nanoseconds in this runtime's arbitrary epoch.
+    /// Monotonic nanoseconds in the process-wide `IOMonotonicDomain` domain.
+    ///
+    /// Deadlines are compared against this value, so runtimes must report
+    /// `IOMonotonicDomain.nanoseconds()` rather than a private epoch.
     func monotonicNanoseconds()
         -> UInt64
 

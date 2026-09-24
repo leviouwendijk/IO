@@ -205,11 +205,6 @@ private final class EventedIOReactor:
 
     private let lock =
         NSLock()
-    private let clock:
-        MonotonicClock
-    private let epoch:
-        MonotonicClock.Instant
-
     private let wakeRead:
         Int32
     private let wakeWrite:
@@ -229,14 +224,6 @@ private final class EventedIOReactor:
         Thread?
 
     init() throws {
-        let clock =
-            MonotonicClock()
-
-        self.clock =
-            clock
-        self.epoch =
-            clock.now
-
         var descriptors:
             [Int32] = [-1, -1]
 
@@ -280,6 +267,20 @@ private final class EventedIOReactor:
             descriptors[1]
     }
 
+    /// The wake pipe is closed only here, never by the reactor thread. Every caller
+    /// that can still reach `wake()` holds a reference to this reactor, so the
+    /// descriptors cannot be closed, and their numbers reused, while a late
+    /// `wake()` is still possible. Once the reactor stops, surplus wake bytes just
+    /// fill the nonblocking pipe (`EAGAIN` is ignored).
+    deinit {
+        systemClose(
+            wakeRead
+        )
+        systemClose(
+            wakeWrite
+        )
+    }
+
     func start() {
         let thread =
             Thread {
@@ -302,18 +303,7 @@ private final class EventedIOReactor:
     func monotonicNanoseconds()
         -> UInt64
     {
-        let elapsed =
-            epoch.duration(
-                to: clock.now
-            )
-
-        guard elapsed.nanoseconds > 0 else {
-            return 0
-        }
-
-        return UInt64(
-            elapsed.nanoseconds
-        )
+        IOMonotonicDomain.nanoseconds()
     }
 
     func registerWait(
@@ -322,9 +312,19 @@ private final class EventedIOReactor:
             @escaping @Sendable
             (IOExecutionError?) -> Void
     ) -> IOOperation? {
-        precondition(
-            !request.interest.isEmpty
-        )
+        guard request.descriptor >= 0 else {
+            completion(
+                .invalid_descriptor
+            )
+            return nil
+        }
+
+        guard !request.interest.isEmpty else {
+            completion(
+                .invalid_interest
+            )
+            return nil
+        }
 
         lock.lock()
 
@@ -617,13 +617,6 @@ private final class EventedIOReactor:
                 completions
             )
         }
-
-        systemClose(
-            wakeRead
-        )
-        systemClose(
-            wakeWrite
-        )
     }
 
     private func takeWork()
