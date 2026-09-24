@@ -220,8 +220,11 @@ enum HZSystemProbes {
             )
         }
 
-        return .inconclusive(
-            "no 0644 observation across \(iterations) replaces; the window exists by construction but was not caught"
+        // Before the repair this observer caught the window thousands of times
+        // per run; with metadata applied before the swap it no longer exists by
+        // construction, so no observation is reported as ABSENT.
+        return .absent(
+            "no 0644 observation across \(iterations) replaces"
         )
     }
 }

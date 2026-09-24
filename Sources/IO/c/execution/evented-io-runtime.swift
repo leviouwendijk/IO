@@ -251,6 +251,12 @@ private final class EventedIOReactor:
             try setNonblocking(
                 descriptors[1]
             )
+            try setCloseOnExec(
+                descriptors[0]
+            )
+            try setCloseOnExec(
+                descriptors[1]
+            )
         } catch {
             systemClose(
                 descriptors[0]
@@ -1113,6 +1119,35 @@ private func setNonblocking(
             | O_NONBLOCK
     ) >= 0
     else {
+        throw IOExecutionError
+            .system_call_failed(
+                code: errno
+            )
+    }
+}
+
+/// Marks a descriptor close-on-exec so spawned processes do not inherit it.
+///
+/// Darwin has no `pipe2`, so the flag is set right after `pipe`; the reactor
+/// creates its wake pipe during init, before any descriptor is handed out.
+private func setCloseOnExec(
+    _ descriptor: Int32
+) throws {
+    #if canImport(Darwin)
+    let result = Darwin.fcntl(
+        descriptor,
+        F_SETFD,
+        FD_CLOEXEC
+    )
+    #elseif canImport(Glibc)
+    let result = Glibc.fcntl(
+        descriptor,
+        F_SETFD,
+        FD_CLOEXEC
+    )
+    #endif
+
+    guard result >= 0 else {
         throw IOExecutionError
             .system_call_failed(
                 code: errno

@@ -128,6 +128,8 @@ enum HazardRunner {
     /// Cluster 2 (execution): #4, #5, #6. #3a stays ungated: its stress probe can
     /// only report PRESENT or INCONCLUSIVE, never ABSENT.
     /// Cluster 3 (progress accounting): #7a, #9, #10.
+    /// Cluster 4 (descriptors and filesystem): #11, deep-tree removal, replace
+    /// permission window, line fingerprint structure.
     static let repairedProbeIDs: [String] = [
         "bounded-stream-wrapped-ring",
         "socket-peer-close-vector-write",
@@ -149,6 +151,10 @@ enum HazardRunner {
         "destination-progress-before-error",
         "darwin-large-direct-write",
         "scanner-throw-progress",
+        "close-on-exec-descriptors",
+        "deep-tree-remove-descriptor-limit",
+        "replace-permission-window",
+        "line-fingerprint-structure",
     ]
 
     static var probes: [HazardProbe] {

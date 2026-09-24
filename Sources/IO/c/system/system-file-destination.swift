@@ -248,18 +248,21 @@ private func systemDestinationOpen(
             O_WRONLY
             | O_CREAT
             | O_EXCL
+            | O_CLOEXEC
 
     case .truncate:
         flags =
             O_WRONLY
             | O_CREAT
             | O_TRUNC
+            | O_CLOEXEC
 
     case .append:
         flags =
             O_WRONLY
             | O_CREAT
             | O_APPEND
+            | O_CLOEXEC
     }
 
     #if canImport(Darwin)

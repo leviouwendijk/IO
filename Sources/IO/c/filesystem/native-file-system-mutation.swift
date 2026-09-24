@@ -846,16 +846,14 @@ private extension NativeFileSystemMutation {
                     )
                 }
 
-                guard systemRenameSwap(
-                    replacementPointer,
-                    originalPointer
-                ) == 0 else {
-                    return false
-                }
-
+                // Give the replacement the original's mode, birth time, and ACL
+                // while it is still at its own path. The swap then publishes it
+                // at the original path with the final metadata already in place,
+                // so no observer sees the original path with the replacement's
+                // own (possibly wider) permissions.
                 let metadataCode =
                     systemApplyReplaceMetadata(
-                        originalPointer,
+                        replacementPointer,
                         info: originalInfo,
                         acl: originalACL,
                         currentACLKnownAbsent:
@@ -864,24 +862,46 @@ private extension NativeFileSystemMutation {
                     )
 
                 guard metadataCode == 0 else {
-                    let rollbackCode =
-                        rollbackDarwinReplace(
-                            originalPointer:
-                                originalPointer,
-                            replacementPointer:
-                                replacementPointer,
-                            replacementInfo:
-                                replacementInfo,
-                            replacementACL:
-                                replacementACL
+                    let restoreCode =
+                        systemApplyReplaceMetadata(
+                            replacementPointer,
+                            info: replacementInfo,
+                            acl: replacementACL,
+                            currentACLKnownAbsent:
+                                false
                         )
 
-                    guard rollbackCode == 0 else {
+                    guard restoreCode == 0 else {
                         throw FileSystemError(
                             operation: .replace,
                             url: original,
                             errno:
-                                rollbackCode
+                                restoreCode
+                        )
+                    }
+
+                    return false
+                }
+
+                guard systemRenameSwap(
+                    replacementPointer,
+                    originalPointer
+                ) == 0 else {
+                    let restoreCode =
+                        systemApplyReplaceMetadata(
+                            replacementPointer,
+                            info: replacementInfo,
+                            acl: replacementACL,
+                            currentACLKnownAbsent:
+                                false
+                        )
+
+                    guard restoreCode == 0 else {
+                        throw FileSystemError(
+                            operation: .replace,
+                            url: original,
+                            errno:
+                                restoreCode
                         )
                     }
 
@@ -1230,7 +1250,8 @@ private extension NativeFileSystemMutation {
     /// covers only the fdopendir failure path.
     static func removeDirectoryContents(
         _ descriptor: Int32,
-        url: URL
+        url: URL,
+        depth: Int = 0
     ) throws {
         guard let directory =
                 fdopendir(
@@ -1319,7 +1340,8 @@ private extension NativeFileSystemMutation {
                             parentDescriptor,
                         name: name,
                         url: url,
-                        originalUnlinkCode: nil
+                        originalUnlinkCode: nil,
+                        depth: depth
                     )
                     return
                 }
@@ -1355,7 +1377,8 @@ private extension NativeFileSystemMutation {
                     name: name,
                     url: url,
                     originalUnlinkCode:
-                        unlinkCode
+                        unlinkCode,
+                    depth: depth
                 )
             }
         }
@@ -1365,7 +1388,8 @@ private extension NativeFileSystemMutation {
         parentDescriptor: Int32,
         name: UnsafePointer<CChar>,
         url: URL,
-        originalUnlinkCode: Int32?
+        originalUnlinkCode: Int32?,
+        depth: Int
     ) throws {
         let childDescriptor =
             systemOpenDirectoryAt(
@@ -1420,10 +1444,21 @@ private extension NativeFileSystemMutation {
             )
         }
 
-        try removeDirectoryContents(
-            childDescriptor,
-            url: url
-        )
+        // Past the budget, switch to the walker that holds one directory
+        // descriptor regardless of depth, so deep trees cannot exhaust the
+        // process descriptor limit.
+        if depth + 1 >= recursiveRemovalDescriptorBudget {
+            try removeDirectoryContentsBounded(
+                childDescriptor,
+                url: url
+            )
+        } else {
+            try removeDirectoryContents(
+                childDescriptor,
+                url: url,
+                depth: depth + 1
+            )
+        }
 
         guard systemUnlinkAt(
             parentDescriptor,
@@ -1436,6 +1471,331 @@ private extension NativeFileSystemMutation {
                 errno: errno
             )
         }
+    }
+
+    /// Directories this many levels below the removal root are emptied by
+    /// `removeDirectoryContentsBounded`, so recursive removal holds at most this
+    /// many directory streams at once.
+    static let recursiveRemovalDescriptorBudget = 16
+
+    private struct DirectoryIdentity: Equatable {
+        let device: UInt64
+        let inode: UInt64
+    }
+
+    private enum BoundedRemovalStep {
+        case child(
+            name: [CChar],
+            originalUnlinkCode: Int32?
+        )
+        case empty
+    }
+
+    /// Empties a directory tree of any depth while holding one directory
+    /// descriptor across levels (plus a transient scan descriptor).
+    ///
+    /// Descends one level at a time, closing the parent, and climbs back through
+    /// `..`. Every ascent is checked against the device/inode recorded on the way
+    /// down; a mismatch means the tree was moved concurrently, and removal stops
+    /// with `ESTALE` instead of deleting outside the requested tree.
+    ///
+    /// Ownership of `rootDescriptor` is consumed. The root directory itself is
+    /// left in place for the caller to remove.
+    static func removeDirectoryContentsBounded(
+        _ rootDescriptor: Int32,
+        url: URL
+    ) throws {
+        var current = rootDescriptor
+        var descent: [(name: [CChar], parent: DirectoryIdentity)] = []
+
+        defer {
+            _ = systemClose(
+                current
+            )
+        }
+
+        while true {
+            switch try nextBoundedRemovalStep(
+                current,
+                url: url
+            ) {
+            case .child(let name, let originalUnlinkCode):
+                let parent = try directoryIdentity(
+                    current,
+                    url: url
+                )
+                let child = name.withUnsafeBufferPointer {
+                    systemOpenDirectoryAt(
+                        current,
+                        $0.baseAddress!
+                    )
+                }
+
+                guard child >= 0 else {
+                    let openCode = errno
+
+                    guard openCode == ENOTDIR
+                            || openCode == ELOOP
+                    else {
+                        throw FileSystemError(
+                            operation: .remove,
+                            url: url,
+                            errno: openCode
+                        )
+                    }
+
+                    // Replaced by a non-directory since readdir: O_NOFOLLOW
+                    // refused it, so unlink the leaf itself.
+                    let unlinked = name.withUnsafeBufferPointer {
+                        systemUnlinkAt(
+                            current,
+                            $0.baseAddress!,
+                            0
+                        )
+                    }
+
+                    guard unlinked == 0 else {
+                        let retryCode = errno
+
+                        throw FileSystemError(
+                            operation: .remove,
+                            url: url,
+                            errno: retryCode == ENOTDIR
+                                ? originalUnlinkCode ?? retryCode
+                                : retryCode
+                        )
+                    }
+
+                    continue
+                }
+
+                _ = systemClose(
+                    current
+                )
+                current = child
+                descent.append(
+                    (name, parent)
+                )
+
+            case .empty:
+                guard let level = descent.popLast() else {
+                    return
+                }
+
+                let parent = "..".withCString {
+                    systemOpenDirectoryAt(
+                        current,
+                        $0
+                    )
+                }
+
+                guard parent >= 0 else {
+                    throw FileSystemError(
+                        operation: .remove,
+                        url: url,
+                        errno: errno
+                    )
+                }
+
+                let identity: DirectoryIdentity
+
+                do {
+                    identity = try directoryIdentity(
+                        parent,
+                        url: url
+                    )
+                } catch {
+                    _ = systemClose(
+                        parent
+                    )
+                    throw error
+                }
+
+                guard identity == level.parent else {
+                    _ = systemClose(
+                        parent
+                    )
+                    throw FileSystemError(
+                        operation: .remove,
+                        url: url,
+                        errno: ESTALE
+                    )
+                }
+
+                _ = systemClose(
+                    current
+                )
+                current = parent
+
+                let removed = level.name.withUnsafeBufferPointer {
+                    systemUnlinkAt(
+                        current,
+                        $0.baseAddress!,
+                        AT_REMOVEDIR
+                    )
+                }
+
+                guard removed == 0 else {
+                    throw FileSystemError(
+                        operation: .remove,
+                        url: url,
+                        errno: errno
+                    )
+                }
+            }
+        }
+    }
+
+    /// Unlinks non-directory entries of `descriptor` until it finds a directory
+    /// (or an entry unlink refused as one), which it returns by name.
+    ///
+    /// Scans through a fresh descriptor for `.`, so every scan starts at the
+    /// first entry and `descriptor` itself is never consumed.
+    private static func nextBoundedRemovalStep(
+        _ descriptor: Int32,
+        url: URL
+    ) throws -> BoundedRemovalStep {
+        let scanDescriptor = ".".withCString {
+            systemOpenDirectoryAt(
+                descriptor,
+                $0
+            )
+        }
+
+        guard scanDescriptor >= 0 else {
+            throw FileSystemError(
+                operation: .remove,
+                url: url,
+                errno: errno
+            )
+        }
+
+        guard let directory =
+                fdopendir(
+                    scanDescriptor
+                )
+        else {
+            let code = errno
+            _ = systemClose(
+                scanDescriptor
+            )
+
+            throw FileSystemError(
+                operation: .remove,
+                url: url,
+                errno: code
+            )
+        }
+
+        defer {
+            closedir(
+                directory
+            )
+        }
+
+        while true {
+            errno = 0
+
+            guard let entry =
+                    readdir(
+                        directory
+                    )
+            else {
+                let code = errno
+
+                if code != 0 {
+                    throw FileSystemError(
+                        operation: .remove,
+                        url: url,
+                        errno: code
+                    )
+                }
+
+                return .empty
+            }
+
+            let step: BoundedRemovalStep? = try withDirectoryEntryNameCString(
+                entry
+            ) {
+                name in
+
+                if isDotDirectoryEntry(
+                    name
+                ) {
+                    return nil
+                }
+
+                let copy = Array(
+                    UnsafeBufferPointer(
+                        start: name,
+                        count: cStringLength(name) + 1
+                    )
+                )
+
+                if Int32(entry.pointee.d_type) == Int32(DT_DIR) {
+                    return .child(
+                        name: copy,
+                        originalUnlinkCode: nil
+                    )
+                }
+
+                if systemUnlinkAt(
+                    descriptor,
+                    name,
+                    0
+                ) == 0 {
+                    return nil
+                }
+
+                let unlinkCode = errno
+
+                guard unlinkCode == EISDIR
+                        || unlinkCode == EPERM
+                else {
+                    throw FileSystemError(
+                        operation: .remove,
+                        url: url,
+                        errno: unlinkCode
+                    )
+                }
+
+                return .child(
+                    name: copy,
+                    originalUnlinkCode: unlinkCode
+                )
+            }
+
+            if let step {
+                return step
+            }
+        }
+    }
+
+    private static func directoryIdentity(
+        _ descriptor: Int32,
+        url: URL
+    ) throws -> DirectoryIdentity {
+        var info = stat()
+
+        guard fstat(
+            descriptor,
+            &info
+        ) == 0 else {
+            throw FileSystemError(
+                operation: .remove,
+                url: url,
+                errno: errno
+            )
+        }
+
+        return .init(
+            device: UInt64(
+                truncatingIfNeeded: info.st_dev
+            ),
+            inode: UInt64(
+                truncatingIfNeeded: info.st_ino
+            )
+        )
     }
 
     @inline(__always)

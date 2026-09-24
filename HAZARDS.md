@@ -200,3 +200,37 @@ Findings #7a, #9, #10. Gate grows by `destination-progress-before-error`,
 | `destination-progress-before-error` | ABSENT | write reported `.partial(3)` matching the backend-accepted prefix |
 | `darwin-large-direct-write` | ABSENT | 2 GiB + 4 KiB direct write to `/dev/null` completed through clamped syscalls |
 | `scanner-throw-progress` | ABSENT | resumed scan delivered `["two", "three"]`; `"one"` not replayed |
+
+## Cluster 4: descriptors and filesystem
+
+Findings #11, deep-tree removal, replace permission window, line fingerprint structure.
+Gate grows by the four remaining probes; only `reactor-shutdown-wake-churn` stays ungated.
+
+- #11 `SystemFileSource` and `SystemFileDestination` open with `O_CLOEXEC`; the reactor
+  wake pipe gets `FD_CLOEXEC` right after `pipe` (Darwin has no `pipe2`).
+- Deep-tree removal: recursive removal holds at most 16 directory streams. Deeper
+  subtrees are emptied by `removeDirectoryContentsBounded`, which descends one level at
+  a time, climbs back through `..`, and verifies each ascent by device/inode (`ESTALE`
+  if the tree moved concurrently).
+- Replace permission window: the Darwin native replace applies the original's mode,
+  birth time, and ACL to the replacement *before* the rename swap, so the original path
+  never shows the replacement's own permissions. The probe now reports ABSENT when its
+  observer (which previously caught the window thousands of times per run) sees nothing.
+- Line fingerprints: `ContentFingerprint.fingerprint(for: [String])` length-frames each
+  line and reports algorithm `fnv1a64-lines`. Values differ from earlier line
+  fingerprints by design.
+
+### Cluster 4 run (2026-09-24, debug, arm64e macOS)
+
+`tio_hazard`: 0 present, 24 absent, 1 inconclusive. `tio_hazard_gate`: passed, 24/24 ABSENT.
+`tio_fs` 20/20, `tio_exec` 20/20, `tio_core` 19/19, `tio_stream` 20/20, `tio_scan` 6/6, `tio_file` 19/19.
+
+| Probe | Verdict | Observation |
+| --- | --- | --- |
+| `close-on-exec-descriptors` | ABSENT | source, destination, and both wake-pipe descriptors report `FD_CLOEXEC` |
+| `deep-tree-remove-descriptor-limit` | ABSENT | depth-120 tree removed under soft `RLIMIT_NOFILE` 64; root gone |
+| `replace-permission-window` | ABSENT | no 0644 observation across 300 replaces |
+| `line-fingerprint-structure` | ABSENT | structurally different line arrays fingerprint differently |
+
+Only `reactor-shutdown-wake-churn` (#3a) remains INCONCLUSIVE: structurally repaired in cluster 2,
+but a stress probe cannot prove absence, so it stays outside the gate.

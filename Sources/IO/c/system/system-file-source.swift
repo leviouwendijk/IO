@@ -130,9 +130,9 @@ private func systemOpenReadOnly(
     _ path: UnsafePointer<CChar>
 ) -> Int32 {
     #if canImport(Darwin)
-    Darwin.open(path, O_RDONLY)
+    Darwin.open(path, O_RDONLY | O_CLOEXEC)
     #elseif canImport(Glibc)
-    Glibc.open(path, O_RDONLY)
+    Glibc.open(path, O_RDONLY | O_CLOEXEC)
     #endif
 }
 
