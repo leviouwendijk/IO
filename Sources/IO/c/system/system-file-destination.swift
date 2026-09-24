@@ -121,7 +121,9 @@ public struct SystemFileDestination: DestinationBackend, ~Copyable {
             let result = systemDestinationWrite(
                 descriptor,
                 bytes.baseAddress,
-                bytes.count
+                POSIXTransferLimit.clamp(
+                    bytes.count
+                )
             )
 
             if result > 0 {

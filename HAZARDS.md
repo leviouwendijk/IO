@@ -172,3 +172,31 @@ Findings #3a, #4, #5, #6. Gate grows by the eight wait/deadline/runBlocking prob
 | `computed-blocking-runtime-deadline` | ABSENT | expired deadline returns after 0.1 ms |
 | `run-blocking-cancellation-completion` | ABSENT | already-running operation delivered 42 despite cancellation |
 | `reactor-shutdown-wake-churn` | INCONCLUSIVE | structural fix applied; stress probe cannot prove absence |
+
+## Cluster 3: progress accounting
+
+Findings #7a, #9, #10. Gate grows by `destination-progress-before-error`,
+`darwin-large-direct-write`, and `scanner-throw-progress`.
+
+- #7a A backend failure after `Destination.write` accepted a prefix no longer hides that
+  prefix: the write returns `.partial(accepted)` and the failure is deferred to the next
+  `write` or `flush`, which throws it once. A failure with nothing accepted still throws
+  immediately with its original type.
+- #9 `ByteLineScanner.scan` commits consumed bytes and line state for every fragment whose
+  callback returned, even when a later callback throws; the failing fragment is delivered
+  again on the next scan. Fragment and line counters advance only after the callback
+  returns, so a redelivered fragment is not counted twice.
+- #10 `POSIXTransferLimit` caps every read/write-family syscall at `0x7FFF_F000` bytes
+  (Darwin rejects counts above `INT_MAX` with `EINVAL`; Linux caps at the same value). The
+  resulting short transfer is handled by the existing Source/Destination loops.
+
+### Cluster 3 run (2026-09-24, debug, arm64e macOS)
+
+`tio_hazard`: 4 present, 20 absent, 1 inconclusive. `tio_hazard_gate`: passed, 20/20 ABSENT.
+`tio_exec` 20/20, `tio_core` 19/19, `tio_stream` 20/20, `tio_scan` 6/6, `tio_file` 19/19.
+
+| Probe | Verdict | Observation |
+| --- | --- | --- |
+| `destination-progress-before-error` | ABSENT | write reported `.partial(3)` matching the backend-accepted prefix |
+| `darwin-large-direct-write` | ABSENT | 2 GiB + 4 KiB direct write to `/dev/null` completed through clamped syscalls |
+| `scanner-throw-progress` | ABSENT | resumed scan delivered `["two", "three"]`; `"one"` not replayed |

@@ -116,6 +116,10 @@ public struct ByteLineScanner: ~Copyable {
     /// The kernel is a generic type parameter rather than an existential so selecting a
     /// task-specific algorithm does not force witness-table dispatch into the inner byte
     /// search loop.
+    ///
+    /// If `body` throws, every fragment whose callback already returned stays
+    /// consumed; the fragment whose callback threw is delivered again by the next
+    /// scan. Callers can therefore retry after a failure without replaying lines.
     public mutating func scan<Kernel: ByteMatchKernel>(
         using kernel: Kernel.Type,
         _ body: (ByteLineFragment) throws -> ByteLineScanDirective
@@ -141,103 +145,110 @@ public struct ByteLineScanner: ~Copyable {
                 var localCompletedLineCount = completedLineCount
                 var shouldStop = false
 
-                try source.withBytes { readable in
-                    var fragmentStart = 0
-                    let readableBase = readable.baseAddress
+                // Commit progress for every fragment whose callback returned, even when a
+                // later callback throws, so a resumed scan never replays delivered lines.
+                var failure: (any Error)?
 
-                    _ = try kernel.walk(
-                        readable,
-                        needle: 0x0A,
-                        from: 0
-                    ) { index in
-                        // `ByteMatchKernel` is a public extension point. Reject any
-                        // index outside the unscanned readable window before it
-                        // becomes pointer arithmetic; this also rejects backward
-                        // indices because `fragmentStart` only advances.
-                        guard index >= fragmentStart,
-                              index < readable.count
-                        else {
-                            throw StreamContractError.byte_match_index_out_of_range(
-                                index: index,
-                                lowerBound: fragmentStart,
-                                upperBound: readable.count
+                do {
+                    try source.withBytes { readable in
+                        var fragmentStart = 0
+                        let readableBase = readable.baseAddress
+
+                        _ = try kernel.walk(
+                            readable,
+                            needle: 0x0A,
+                            from: 0
+                        ) { index in
+                            // `ByteMatchKernel` is a public extension point. Reject any
+                            // index outside the unscanned readable window before it
+                            // becomes pointer arithmetic; this also rejects backward
+                            // indices because `fragmentStart` only advances.
+                            guard index >= fragmentStart,
+                                  index < readable.count
+                            else {
+                                throw StreamContractError.byte_match_index_out_of_range(
+                                    index: index,
+                                    lowerBound: fragmentStart,
+                                    upperBound: readable.count
+                                )
+                            }
+
+                            let fragmentCount = index - fragmentStart
+                            let start = readableBase.map {
+                                $0.advanced(by: fragmentStart)
+                            }
+                            let fragmentBytes = UnsafeRawBufferPointer(
+                                start: start,
+                                count: fragmentCount
                             )
-                        }
+                            let fragmentStartOffset = localAbsoluteOffset
+                            let fragmentEndOffset = fragmentStartOffset + UInt64(fragmentCount)
 
-                        let fragmentCount = index - fragmentStart
-                        let start = readableBase.map {
-                            $0.advanced(by: fragmentStart)
-                        }
-                        let fragmentBytes = UnsafeRawBufferPointer(
-                            start: start,
-                            count: fragmentCount
-                        )
-                        let fragmentStartOffset = localAbsoluteOffset
-                        let fragmentEndOffset = fragmentStartOffset + UInt64(fragmentCount)
-
-                        localFragmentCount += 1
-                        localCompletedLineCount += 1
-
-                        let directive = try body(
-                            .init(
-                                lineNumber: localLineNumber,
-                                lineStartOffset: localLineStartOffset,
-                                byteRange: fragmentStartOffset..<fragmentEndOffset,
-                                bytes: fragmentBytes,
-                                ending: .line_feed
+                            let directive = try body(
+                                .init(
+                                    lineNumber: localLineNumber,
+                                    lineStartOffset: localLineStartOffset,
+                                    byteRange: fragmentStartOffset..<fragmentEndOffset,
+                                    bytes: fragmentBytes,
+                                    ending: .line_feed
+                                )
                             )
-                        )
 
-                        let consumedCount = fragmentCount + 1
-                        processed += consumedCount
-                        localAbsoluteOffset += UInt64(consumedCount)
-                        localLineNumber += 1
-                        localLineStartOffset = localAbsoluteOffset
-                        localCurrentLineHasBytes = false
-                        fragmentStart = index + 1
+                            localFragmentCount += 1
+                            localCompletedLineCount += 1
 
-                        if directive == .stop {
-                            shouldStop = true
-                            return .stop
+                            let consumedCount = fragmentCount + 1
+                            processed += consumedCount
+                            localAbsoluteOffset += UInt64(consumedCount)
+                            localLineNumber += 1
+                            localLineStartOffset = localAbsoluteOffset
+                            localCurrentLineHasBytes = false
+                            fragmentStart = index + 1
+
+                            if directive == .stop {
+                                shouldStop = true
+                                return .stop
+                            }
+
+                            return .continue
                         }
 
-                        return .continue
+                        if !shouldStop,
+                           fragmentStart < readable.count
+                        {
+                            let fragmentCount = readable.count - fragmentStart
+                            let start = readableBase.map {
+                                $0.advanced(by: fragmentStart)
+                            }
+                            let fragmentBytes = UnsafeRawBufferPointer(
+                                start: start,
+                                count: fragmentCount
+                            )
+                            let fragmentStartOffset = localAbsoluteOffset
+                            let fragmentEndOffset = fragmentStartOffset + UInt64(fragmentCount)
+
+                            let directive = try body(
+                                .init(
+                                    lineNumber: localLineNumber,
+                                    lineStartOffset: localLineStartOffset,
+                                    byteRange: fragmentStartOffset..<fragmentEndOffset,
+                                    bytes: fragmentBytes,
+                                    ending: .none
+                                )
+                            )
+
+                            localFragmentCount += 1
+                            processed += fragmentCount
+                            localAbsoluteOffset += UInt64(fragmentCount)
+                            localCurrentLineHasBytes = true
+
+                            if directive == .stop {
+                                shouldStop = true
+                            }
+                        }
                     }
-
-                    if !shouldStop,
-                       fragmentStart < readable.count
-                    {
-                        let fragmentCount = readable.count - fragmentStart
-                        let start = readableBase.map {
-                            $0.advanced(by: fragmentStart)
-                        }
-                        let fragmentBytes = UnsafeRawBufferPointer(
-                            start: start,
-                            count: fragmentCount
-                        )
-                        let fragmentStartOffset = localAbsoluteOffset
-                        let fragmentEndOffset = fragmentStartOffset + UInt64(fragmentCount)
-
-                        localFragmentCount += 1
-
-                        let directive = try body(
-                            .init(
-                                lineNumber: localLineNumber,
-                                lineStartOffset: localLineStartOffset,
-                                byteRange: fragmentStartOffset..<fragmentEndOffset,
-                                bytes: fragmentBytes,
-                                ending: .none
-                            )
-                        )
-
-                        processed += fragmentCount
-                        localAbsoluteOffset += UInt64(fragmentCount)
-                        localCurrentLineHasBytes = true
-
-                        if directive == .stop {
-                            shouldStop = true
-                        }
-                    }
+                } catch {
+                    failure = error
                 }
 
                 try source.consume(
@@ -254,15 +265,16 @@ public struct ByteLineScanner: ~Copyable {
                 fragmentCount = localFragmentCount
                 completedLineCount = localCompletedLineCount
 
+                if let failure {
+                    throw failure
+                }
+
                 if shouldStop {
                     return .stopped
                 }
 
             case .end:
                 if currentLineHasBytes {
-                    fragmentCount += 1
-                    completedLineCount += 1
-
                     let directive = try body(
                         .init(
                             lineNumber: lineNumber,
@@ -276,6 +288,8 @@ public struct ByteLineScanner: ~Copyable {
                         )
                     )
 
+                    fragmentCount += 1
+                    completedLineCount += 1
                     currentLineHasBytes = false
 
                     if directive == .stop {

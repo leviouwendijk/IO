@@ -127,6 +127,7 @@ enum HazardRunner {
     /// Cluster 1 (memory and process safety): #1, #2, #3b, #8b.
     /// Cluster 2 (execution): #4, #5, #6. #3a stays ungated: its stress probe can
     /// only report PRESENT or INCONCLUSIVE, never ABSENT.
+    /// Cluster 3 (progress accounting): #7a, #9, #10.
     static let repairedProbeIDs: [String] = [
         "bounded-stream-wrapped-ring",
         "socket-peer-close-vector-write",
@@ -145,6 +146,9 @@ enum HazardRunner {
         "cross-runtime-deadline",
         "computed-blocking-runtime-deadline",
         "run-blocking-cancellation-completion",
+        "destination-progress-before-error",
+        "darwin-large-direct-write",
+        "scanner-throw-progress",
     ]
 
     static var probes: [HazardProbe] {

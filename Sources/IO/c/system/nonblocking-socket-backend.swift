@@ -91,7 +91,11 @@ public final class NonblockingSocketBackend: SourceBackend, DestinationBackend, 
         guard !bytes.isEmpty else { return .unavailable }
 
         return try withOpenDescriptor(operation: "recv") { descriptor in
-            let result = socketSystemReceive(descriptor, bytes.baseAddress, bytes.count)
+            let result = socketSystemReceive(
+                descriptor,
+                bytes.baseAddress,
+                POSIXTransferLimit.clamp(bytes.count)
+            )
 
             if result > 0 {
                 return .bytes(.knownPositive(result))
@@ -153,7 +157,7 @@ public final class NonblockingSocketBackend: SourceBackend, DestinationBackend, 
                 let result = socketSystemSend(
                     descriptor,
                     bytes.baseAddress,
-                    bytes.count,
+                    POSIXTransferLimit.clamp(bytes.count),
                     POSIXBrokenPipeSignal.sendFlags
                 )
 

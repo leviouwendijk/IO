@@ -18,6 +18,23 @@ public struct POSIXIOError: Error, Sendable, Equatable, CustomStringConvertible 
     }
 }
 
+/// Largest byte count handed to one read/write-family syscall.
+///
+/// Darwin rejects `read`/`write`/`readv`/`writev`/`send`/`recv` counts above
+/// `INT_MAX` with `EINVAL` instead of transferring a prefix. Linux caps transfers
+/// at this same value. Every syscall site clamps to it and reports the resulting
+/// short transfer, which the Source/Destination algorithms already loop over.
+package enum POSIXTransferLimit {
+    package static let maximumByteCount = 0x7FFF_F000
+
+    @inline(__always)
+    package static func clamp(
+        _ count: Int
+    ) -> Int {
+        min(count, maximumByteCount)
+    }
+}
+
 package enum POSIXVectorProgress: Equatable {
     case bytes(Int)
     case end
@@ -124,44 +141,42 @@ package enum POSIXVectorIO {
         first: UnsafeMutableRawBufferPointer,
         second: UnsafeMutableRawBufferPointer
     ) -> Int {
-        var count = 0
-        if !first.isEmpty {
-            vectors[count] = iovec(
-                iov_base: first.baseAddress,
-                iov_len: first.count
-            )
-            count += 1
-        }
-        if !second.isEmpty {
-            vectors[count] = iovec(
-                iov_base: second.baseAddress,
-                iov_len: second.count
-            )
-            count += 1
-        }
-        return count
+        fillIOVectors(
+            vectors,
+            first: UnsafeRawBufferPointer(first),
+            second: UnsafeRawBufferPointer(second)
+        )
     }
 
+    /// Fills at most two vectors whose combined length never exceeds
+    /// `POSIXTransferLimit.maximumByteCount`; callers already handle the resulting
+    /// short transfer.
     private static func fillIOVectors(
         _ vectors: UnsafeMutableBufferPointer<iovec>,
         first: UnsafeRawBufferPointer,
         second: UnsafeRawBufferPointer
     ) -> Int {
         var count = 0
+        var budget = POSIXTransferLimit.maximumByteCount
+
         if !first.isEmpty {
+            let length = min(first.count, budget)
             vectors[count] = iovec(
                 iov_base: UnsafeMutableRawPointer(mutating: first.baseAddress),
-                iov_len: first.count
+                iov_len: length
             )
+            budget -= length
             count += 1
         }
-        if !second.isEmpty {
+
+        if !second.isEmpty && budget > 0 {
             vectors[count] = iovec(
                 iov_base: UnsafeMutableRawPointer(mutating: second.baseAddress),
-                iov_len: second.count
+                iov_len: min(second.count, budget)
             )
             count += 1
         }
+
         return count
     }
 

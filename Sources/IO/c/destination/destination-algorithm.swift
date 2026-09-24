@@ -6,6 +6,10 @@ package struct DestinationState: Sendable {
     package var directDrainCallCount: UInt64
     package let directBypassPolicy: DestinationDirectBypassPolicy
 
+    /// Backend failure deferred because a multi-byte write had already accepted a
+    /// prefix; thrown by the next write or flush.
+    package var pendingError: (any Error)?
+
     package init(
         directBypassPolicy: DestinationDirectBypassPolicy
     ) {
@@ -16,6 +20,17 @@ package struct DestinationState: Sendable {
         self.directDrainCallCount = 0
         self.directBypassPolicy =
             directBypassPolicy
+        self.pendingError = nil
+    }
+
+    /// Throws, and clears, a failure deferred by an earlier partial write.
+    package mutating func throwPendingError() throws {
+        guard let error = pendingError else {
+            return
+        }
+
+        pendingError = nil
+        throw error
     }
 
     package var statistics: DestinationStatistics {
@@ -46,6 +61,8 @@ package enum DestinationAlgorithm {
         buffer: inout Buffer,
         state: inout DestinationState
     ) throws -> DestinationWrite {
+        try state.throwPendingError()
+
         if buffer.writableCount == 0 {
             switch try drainBufferedOnce(
                 backend: &backend,
@@ -82,6 +99,8 @@ package enum DestinationAlgorithm {
         buffer: inout Buffer,
         state: inout DestinationState
     ) throws -> DestinationWrite {
+        try state.throwPendingError()
+
         guard !bytes.isEmpty else {
             return .complete
         }
@@ -104,11 +123,23 @@ package enum DestinationAlgorithm {
                             buffer.capacity
                     )
             {
-                switch try drainDirect(
-                    remaining,
-                    backend: &backend,
-                    state: &state
-                ) {
+                let direct: DestinationDrain
+
+                do {
+                    direct = try drainDirect(
+                        remaining,
+                        backend: &backend,
+                        state: &state
+                    )
+                } catch {
+                    return try failedWrite(
+                        error,
+                        after: accepted,
+                        state: &state
+                    )
+                }
+
+                switch direct {
                 case .bytes(let count):
                     accepted +=
                         count.value
@@ -121,11 +152,23 @@ package enum DestinationAlgorithm {
             }
 
             if buffer.writableCount == 0 {
-                switch try drainBufferedOnce(
-                    backend: &backend,
-                    buffer: &buffer,
-                    state: &state
-                ) {
+                let buffered: DestinationDrain
+
+                do {
+                    buffered = try drainBufferedOnce(
+                        backend: &backend,
+                        buffer: &buffer,
+                        state: &state
+                    )
+                } catch {
+                    return try failedWrite(
+                        error,
+                        after: accepted,
+                        state: &state
+                    )
+                }
+
+                switch buffered {
                 case .bytes:
                     break
                 case .unavailable:
@@ -161,6 +204,8 @@ package enum DestinationAlgorithm {
         buffer: inout Buffer,
         state: inout DestinationState
     ) throws -> DestinationFlush {
+        try state.throwPendingError()
+
         while !buffer.isEmpty {
             switch try drainBufferedOnce(
                 backend: &backend,
@@ -291,6 +336,25 @@ package enum DestinationAlgorithm {
                         offeredCount
                 )
         }
+    }
+
+    /// A backend failure with nothing accepted is thrown as-is. With a prefix already
+    /// accepted, the prefix is reported and the failure deferred to the next call.
+    private static func failedWrite(
+        _ error: any Error,
+        after accepted: Int,
+        state: inout DestinationState
+    ) throws -> DestinationWrite {
+        guard accepted > 0 else {
+            throw error
+        }
+
+        state.pendingError = error
+        return .partial(
+            .knownPositive(
+                accepted
+            )
+        )
     }
 
     private static func unavailableWrite(

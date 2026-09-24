@@ -81,7 +81,9 @@ public struct SystemFileSource: SourceBackend, ~Copyable {
         let result = systemRead(
             descriptor,
             bytes.baseAddress,
-            bytes.count
+            POSIXTransferLimit.clamp(
+                bytes.count
+            )
         )
 
         if result > 0 {
