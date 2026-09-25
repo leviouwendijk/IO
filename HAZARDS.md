@@ -28,7 +28,7 @@ No production source is modified by V0.
 | `socket-peer-close-scalar-send` | #2 | child | same, scalar path (Darwin `SO_NOSIGPIPE`) |
 | `pipe-destination-peer-close` | #2 | child | documented policy for pipes (caller-level SIGPIPE handling) |
 | `socket-after-close-fd-reuse` | #3b | child | closed backend never issues syscalls on its old descriptor number |
-| `reactor-shutdown-wake-churn` | #3a | child, stress | wake pipe closed only when no `wake()` can run; stress may stay inconclusive |
+| `reactor-inflight-wake-shutdown` | #3a | child, forced interleaving | pause an in-flight wake immediately before its write; complete shutdown and prove the wake pipe cannot close or be reused underneath it |
 | `wait-negative-fd-*` | #4 | child, timeout | prompt `.invalid_descriptor` on both runtimes, with or without deadline |
 | `wait-empty-interest-*` | #4 | child, timeout | prompt error on both runtimes; no trap, no hang |
 | `cross-runtime-deadline` | #5 | child | a 20 ms deadline means ~20 ms on any `IO` |
@@ -245,27 +245,49 @@ but a stress probe cannot prove absence, so it stays outside the gate.
 - Verification gap: the harness is Darwin-only and this cluster's build compiles only the
   Darwin branch. The Glibc branch is unbuilt and unprobed until a Linux run exists.
 
-## Cluster 6: deterministic #3a check
+## Cluster 6/7: deterministic #3a closure
 
-- The cluster 2 repair made the wake pipe close only in the reactor's `deinit`. Because `wake()`
-  is an instance method, a running `wake()` keeps the reactor alive, so the descriptors cannot
-  be closed or reused under it. The stress probe could never show that.
-- `reactor-wake-after-shutdown` checks it directly through package-only hooks on
-  `EventedIORuntime` (`wakePipeDescriptorsForTesting`, `wakeForTesting`): after `shutdown()`
-  the pipe descriptors keep their FIFO identity, 16 freshly opened files never receive their
-  numbers, 1000 late `wake()` calls write nothing into those files, and the pipe closes only
-  after the runtime is released. The probe is gated; `reactor-shutdown-wake-churn` stays as an
-  ungated stress characterization.
+- The cluster 2 repair makes the wake pipe close only in the reactor's `deinit`.
+- `reactor-wake-after-shutdown` verifies the post-shutdown lifetime directly: the pipe retains
+  its FIFO identity through late wakes and closes only when the runtime is released.
+- `reactor-inflight-wake-shutdown` now forces the formerly timing-dependent interleaving. A
+  wake is paused immediately before its syscall, shutdown is allowed to finish completely,
+  the external runtime reference is dropped, and fresh descriptors are opened before the
+  wake resumes. The wake pipe must remain the same FIFO throughout and the resumed wake must
+  not touch any fresh descriptor.
+- The old `reactor-shutdown-wake-churn` scheduler-lottery probe is no longer part of normal
+  characterization; the forced interleaving directly tests the hazardous ordering.
 
-### Cluster 6 run (2026-09-24, debug, arm64e macOS)
+### Deterministic #3a run
 
-`tio_hazard`: 0 present, 25 absent, 1 inconclusive. `tio_hazard_gate`: passed, 25/25 ABSENT.
-`tio_exec` 20/20.
+`tio_hazard`: 0 present, 26 absent, 0 inconclusive. `tio_hazard_gate`: passed, 26/26 ABSENT.
 
 | Probe | Verdict | Observation |
 | --- | --- | --- |
-| `reactor-wake-after-shutdown` | ABSENT | wake pipe kept its identity through shutdown and 1000 late wakes; no fresh descriptor affected; closed on release |
-| `reactor-shutdown-wake-churn` | INCONCLUSIVE | ungated stress characterization; no stray write across 400 races |
+| `reactor-wake-after-shutdown` | ABSENT | wake pipe kept its identity through shutdown and late wakes; closed on release |
+| `reactor-inflight-wake-shutdown` | ABSENT | forced in-flight wake remained bound to the original wake pipe across completed shutdown; no fresh descriptor was reused or written |
 
 Every audit finding now has a gated probe. Open outside the harness: the cluster 5 Glibc
 branch is unbuilt and unprobed, and Atomos is still pinned to `branch: "master"`.
+
+## Cluster 8: memory-safety hardening
+
+Structural fixes from the memory-safety review; each is enforced by construction rather
+than by a probe.
+
+- `NonblockingSocketBackend.init`: every failure point now runs before any stored property
+  is set. Previously a throw after full initialization ran `deinit`, which closed a
+  descriptor the caller still owned (double close, or closing a reused number). On throw
+  the descriptor now stays open and caller-owned.
+- `dirent.d_name`: names are addressed through `MemoryLayout<dirent>.offset(of:)` via
+  `DirectoryEntryName`. Evaluating `pointee.d_name` loaded the full fixed-size array, which
+  can run past a variable-length `readdir` record.
+- `NativeCapturedExtendedACL` is `~Copyable` and frees its `acl_t` in `deinit`, so a copy
+  can no longer cause a double `acl_free`.
+- Native recursive copy stops at `recursiveCopyDepthLimit` (64) levels. Deeper trees make
+  the native path fail cleanly, remove the partial destination, and fall back to
+  Foundation instead of growing descriptors and stack without bound.
+
+Open: public byte views (`ByteLineFragment.bytes`, `Source.withBytes`/`withReadableRegions`,
+backend and kernel parameters) are still escapable `Unsafe*BufferPointer`s; moving them to
+`RawSpan`/`MutableRawSpan` is a separate public-API change.

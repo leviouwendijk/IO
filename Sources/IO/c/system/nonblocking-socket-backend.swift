@@ -20,7 +20,13 @@ import Glibc
 /// shut down in both directions; such a socket is still adopted, but its writes are
 /// refused with `EPIPE` without entering the kernel, because the kernel would raise
 /// `SIGPIPE` for them.
+///
+/// Ownership on failure: if `init` throws, the descriptor is left open and remains
+/// owned by the caller, even when `ownsDescriptor` is `true`.
 public final class NonblockingSocketBackend: SourceBackend, DestinationBackend, @unchecked Sendable {
+    /// Raw descriptor number. It stays readable after `close()`, when the number
+    /// may already belong to an unrelated resource; use `readinessDescriptor`,
+    /// which is `nil` once closed, for anything that can outlive the backend.
     public let descriptor: Int32
     private let ownsDescriptor: Bool
     private let lifecycle: UnsafeMutablePointer<pthread_mutex_t>
@@ -40,9 +46,21 @@ public final class NonblockingSocketBackend: SourceBackend, DestinationBackend, 
         setNonblocking: Bool = true,
         ownsDescriptor: Bool = true
     ) throws {
+        // Every failure point runs before any stored property is set. A throwing
+        // class initializer that has fully initialized `self` still runs `deinit`,
+        // which would close a descriptor the caller still owns; failing first
+        // leaves the descriptor open and owned by the caller.
         let suppression = POSIXBrokenPipeSignal.suppress(
             descriptor: descriptor
         )
+
+        if case .failed(let code) = suppression {
+            throw POSIXIOError(operation: "suppress SIGPIPE", code: code)
+        }
+
+        if setNonblocking {
+            try NonblockingSocketBackend.makeNonblocking(descriptor)
+        }
 
         self.descriptor = descriptor
         self.ownsDescriptor = ownsDescriptor
@@ -50,14 +68,6 @@ public final class NonblockingSocketBackend: SourceBackend, DestinationBackend, 
         self.writesKnownBroken = suppression == .socket_already_shut_down
         self.closed = false
         _ = pthread_mutex_init(lifecycle, nil)
-
-        if setNonblocking {
-            try Self.makeNonblocking(descriptor)
-        }
-
-        if case .failed(let code) = suppression {
-            throw POSIXIOError(operation: "suppress SIGPIPE", code: code)
-        }
     }
 
     deinit {

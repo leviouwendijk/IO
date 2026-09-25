@@ -434,37 +434,37 @@ private extension NativeFileSystem {
         _ pointer: UnsafeMutablePointer<dirent>,
         body: (UnsafeBufferPointer<UInt8>) -> Result
     ) -> Result {
-        let capacity = MemoryLayout.size(
-            ofValue: pointer.pointee.d_name
+        let name =
+            DirectoryEntryName.pointer(
+                pointer
+            )
+
+        #if canImport(Darwin)
+        let length = min(
+            Int(
+                pointer.pointee.d_namlen
+            ),
+            DirectoryEntryName.capacity
         )
+        #else
+        var length = 0
+        while length < DirectoryEntryName.capacity,
+              name[length] != 0
+        {
+            length += 1
+        }
+        #endif
 
-        return withUnsafePointer(
-            to: &pointer.pointee.d_name
-        ) {
-            $0.withMemoryRebound(
-                to: UInt8.self,
-                capacity: capacity
-            ) { bytes in
-                #if canImport(Darwin)
-                let length = Int(
-                    pointer.pointee.d_namlen
+        return name.withMemoryRebound(
+            to: UInt8.self,
+            capacity: length
+        ) { bytes in
+            body(
+                UnsafeBufferPointer(
+                    start: bytes,
+                    count: length
                 )
-                #else
-                var length = 0
-                while length < capacity,
-                      bytes[length] != 0
-                {
-                    length += 1
-                }
-                #endif
-
-                return body(
-                    UnsafeBufferPointer(
-                        start: bytes,
-                        count: length
-                    )
-                )
-            }
+            )
         }
     }
 
@@ -484,4 +484,43 @@ private extension NativeFileSystem {
         )
     }
 
+}
+
+/// Location of `dirent.d_name`, computed from the struct layout alone.
+///
+/// Evaluating `entry.pointee.d_name` loads the whole fixed-size array (1024 bytes
+/// on Darwin), but a `readdir` record is only `d_reclen` bytes long, so that load
+/// can run past the record and, for the last record, past libc's buffer. These
+/// helpers address the name through its offset and never touch the rest.
+enum DirectoryEntryName {
+    static let offset: Int =
+        MemoryLayout<dirent>.offset(
+            of: \dirent.d_name
+        )!
+
+    static let capacity: Int =
+        fieldSize(
+            \dirent.d_name
+        )
+
+    private static func fieldSize<Field>(
+        _: KeyPath<dirent, Field>
+    ) -> Int {
+        MemoryLayout<Field>.size
+    }
+
+    @inline(__always)
+    static func pointer(
+        _ entry: UnsafeMutablePointer<dirent>
+    ) -> UnsafePointer<CChar> {
+        UnsafeRawPointer(
+            entry
+        )
+        .advanced(
+            by: offset
+        )
+        .assumingMemoryBound(
+            to: CChar.self
+        )
+    }
 }

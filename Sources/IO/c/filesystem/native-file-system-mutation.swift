@@ -7,8 +7,20 @@ import Glibc
 #endif
 
 #if canImport(Darwin)
-private struct NativeCapturedExtendedACL {
+/// Owned Darwin extended ACL. Noncopyable so the handle is freed exactly once,
+/// by `deinit`; a copy can no longer produce a second `acl_free`.
+private struct NativeCapturedExtendedACL: ~Copyable {
     let value: acl_t?
+
+    deinit {
+        if let value {
+            _ = acl_free(
+                UnsafeMutableRawPointer(
+                    value
+                )
+            )
+        }
+    }
 }
 #endif
 
@@ -486,7 +498,8 @@ private extension NativeFileSystemMutation {
     static func copyDirectoryContentsDarwin(
         sourceDescriptor: Int32,
         destinationDescriptor: Int32,
-        source: URL
+        source: URL,
+        depth: Int = 0
     ) throws {
         guard let directory =
                 fdopendir(
@@ -574,7 +587,8 @@ private extension NativeFileSystemMutation {
                         destinationParentDescriptor:
                             destinationDescriptor,
                         name: name,
-                        source: source
+                        source: source,
+                        depth: depth
                     )
                     return
                 }
@@ -614,7 +628,8 @@ private extension NativeFileSystemMutation {
                             destinationParentDescriptor:
                                 destinationDescriptor,
                             name: name,
-                            source: source
+                            source: source,
+                            depth: depth
                         )
                         return
                     }
@@ -657,12 +672,27 @@ private extension NativeFileSystemMutation {
         }
     }
 
+    /// Levels below the copy root handled by the native recursive copy. Each
+    /// level holds two descriptors and a stack frame, so a deeper tree makes the
+    /// native path fail cleanly; `copyDirectoryTreeDarwin` then removes the
+    /// partial destination and `copy` falls back to Foundation.
+    static let recursiveCopyDepthLimit = 64
+
     static func copyChildDirectoryDarwin(
         sourceParentDescriptor: Int32,
         destinationParentDescriptor: Int32,
         name: UnsafePointer<CChar>,
-        source: URL
+        source: URL,
+        depth: Int
     ) throws {
+        guard depth + 1 < recursiveCopyDepthLimit else {
+            throw FileSystemError(
+                operation: .copy,
+                url: source,
+                errno: ELOOP
+            )
+        }
+
         guard Darwin.mkdirat(
             destinationParentDescriptor,
             name,
@@ -722,7 +752,8 @@ private extension NativeFileSystemMutation {
                 sourceDescriptor,
             destinationDescriptor:
                 destinationDescriptor,
-            source: source
+            source: source,
+            depth: depth + 1
         )
     }
 
@@ -792,24 +823,12 @@ private extension NativeFileSystemMutation {
                     return false
                 }
 
-                defer {
-                    freeCapturedExtendedACL(
-                        originalACL
-                    )
-                }
-
                 guard let replacementACL =
                         captureExtendedACL(
                             replacementPointer
                         )
                 else {
                     return false
-                }
-
-                defer {
-                    freeCapturedExtendedACL(
-                        replacementACL
-                    )
                 }
 
                 // Give the replacement the original's mode, birth time, and ACL
@@ -939,23 +958,6 @@ private extension NativeFileSystemMutation {
         )
     }
 
-    static func freeCapturedExtendedACL(
-        _ captured:
-            NativeCapturedExtendedACL
-    ) {
-        guard let value =
-                captured.value
-        else {
-            return
-        }
-
-        _ = acl_free(
-            UnsafeMutableRawPointer(
-                value
-            )
-        )
-    }
-
     /// Restores the replacement object's original metadata while it is at
     /// `originalPointer`, then swaps the two names back to their pre-operation
     /// locations. Returning zero means Foundation can safely be used as the
@@ -967,7 +969,7 @@ private extension NativeFileSystemMutation {
             UnsafePointer<CChar>,
         replacementInfo: stat,
         replacementACL:
-            NativeCapturedExtendedACL
+            borrowing NativeCapturedExtendedACL
     ) -> Int32 {
         let metadataCode =
             systemApplyReplaceMetadata(
@@ -1771,26 +1773,11 @@ private extension NativeFileSystemMutation {
         body:
             (UnsafePointer<CChar>) throws -> Result
     ) rethrows -> Result {
-        let capacity =
-            MemoryLayout.size(
-                ofValue:
-                    pointer.pointee.d_name
+        try body(
+            DirectoryEntryName.pointer(
+                pointer
             )
-
-        return try withUnsafePointer(
-            to: &pointer.pointee.d_name
-        ) {
-            nameStorage in
-
-            try nameStorage.withMemoryRebound(
-                to: CChar.self,
-                capacity: capacity
-            ) {
-                try body(
-                    $0
-                )
-            }
-        }
+        )
     }
 
     @inline(__always)
@@ -2276,7 +2263,7 @@ private func systemApplyReplaceMetadata(
         UnsafePointer<CChar>,
     info: stat,
     acl:
-        NativeCapturedExtendedACL,
+        borrowing NativeCapturedExtendedACL,
     currentACLKnownAbsent: Bool
 ) -> Int32 {
     guard Darwin.chmod(
@@ -2313,7 +2300,7 @@ private func systemApplyExtendedACL(
     _ pointer:
         UnsafePointer<CChar>,
     acl:
-        NativeCapturedExtendedACL,
+        borrowing NativeCapturedExtendedACL,
     currentACLKnownAbsent: Bool
 ) -> Int32 {
     if let value =
