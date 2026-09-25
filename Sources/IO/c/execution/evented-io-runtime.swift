@@ -72,6 +72,22 @@ public final class EventedIORuntime:
         reactor.wakeForTesting()
     }
 
+    /// Hazard-harness hook (#3a): pauses an otherwise real wake immediately
+    /// before its write so shutdown/wake lifetime ordering can be forced.
+    package func wakeForTesting(
+        beforeWrite: @escaping @Sendable () -> Void
+    ) {
+        reactor.wakeForTesting(
+            beforeWrite: beforeWrite
+        )
+    }
+
+    /// Hazard-harness hook (#3a): reports whether the reactor thread has
+    /// actually returned from its run loop after shutdown.
+    package var reactorThreadFinishedForTesting: Bool {
+        reactor.threadFinishedForTesting
+    }
+
     public func monotonicNanoseconds()
         -> UInt64
     {
@@ -304,8 +320,22 @@ private final class EventedIOReactor:
         (wakeRead, wakeWrite)
     }
 
+    var threadFinishedForTesting: Bool {
+        lock.lock()
+        let thread = self.thread
+        lock.unlock()
+        return thread?.isFinished ?? true
+    }
+
     func wakeForTesting() {
         wake()
+    }
+
+    func wakeForTesting(
+        beforeWrite: @escaping @Sendable () -> Void
+    ) {
+        beforeWrite()
+        writeWakeByte()
     }
 
     func start() {
@@ -962,6 +992,10 @@ private final class EventedIOReactor:
     }
 
     private func wake() {
+        writeWakeByte()
+    }
+
+    private func writeWakeByte() {
         var byte:
             UInt8 = 1
 

@@ -59,11 +59,11 @@ enum HZExecutionProbes {
                 body: { try await runBlockingCancellationCompletion() }
             ),
             .init(
-                "reactor-shutdown-wake-churn",
+                "reactor-inflight-wake-shutdown",
                 finding: "#3a",
-                timeoutSeconds: 120,
-                onTimeout: .inconclusive("stress probe exceeded its time budget"),
-                body: { try await reactorShutdownWakeChurn() }
+                timeoutSeconds: 5,
+                onTimeout: .present("forced in-flight wake/shutdown interleaving did not complete"),
+                body: { try reactorInflightWakeShutdown() }
             ),
             .init(
                 "reactor-wake-after-shutdown",
@@ -384,86 +384,110 @@ enum HZExecutionProbes {
         return "\(info.st_dev):\(info.st_ino)"
     }
 
-    /// Races `shutdown()` against wait registration while another thread
-    /// continuously opens a fresh file. A stray wake byte written through a
-    /// closed-and-reused pipe descriptor shows up as a non-empty file.
-    static func reactorShutdownWakeChurn() async throws -> HazardOutcome {
-        let directory = try HZ.makeTemporaryDirectory("wake-churn")
+    /// Forces the exact #3a interleaving instead of waiting for scheduler luck:
+    /// an in-flight wake is paused immediately before its write, shutdown is allowed
+    /// to finish completely, the external runtime reference is released, and fresh
+    /// files are opened before the wake is permitted to continue.
+    static func reactorInflightWakeShutdown() throws -> HazardOutcome {
+        let directory = try HZ.makeTemporaryDirectory("inflight-wake-shutdown")
         defer { try? FileManager.default.removeItem(at: directory) }
 
-        let probePath = directory.appendingPathComponent("churn").path
-        let state = HZState()
-        let churnDone = DispatchSemaphore(value: 0)
+        var runtime: EventedIORuntime? = try EventedIORuntime()
+        let pipe = runtime!.wakePipeDescriptorsForTesting
 
-        let churn = Thread {
-            while !state.isSet("stop") {
-                let descriptor = Darwin.open(
-                    probePath,
-                    O_RDWR | O_CREAT | O_TRUNC | O_CLOEXEC,
-                    mode_t(0o600)
-                )
-
-                if descriptor >= 0 {
-                    usleep(20)
-                    var info = stat()
-
-                    if Darwin.fstat(descriptor, &info) == 0,
-                       info.st_size > 0
-                    {
-                        state.increment()
-                    }
-
-                    _ = Darwin.close(descriptor)
-                }
-            }
-
-            churnDone.signal()
-        }
-        churn.start()
-
-        let iterations = 400
-
-        for iteration in 0..<iterations {
-            if iteration % 100 == 0 {
-                HZ.step("shutdown/register race iteration \(iteration)")
-            }
-
-            let runtime = try EventedIORuntime()
-            let io = IO(runtime)
-            let (readEnd, writeEnd) = try HZ.pipePair()
-
-            let waiter = Task.detached {
-                for _ in 0..<8 {
-                    try? await io.wait(
-                        descriptor: readEnd,
-                        for: .readable,
-                        deadline: io.deadline(after: .init(nanoseconds: 50_000_000))
-                    )
-                }
-            }
-
-            DispatchQueue.global().async {
-                runtime.shutdown()
-            }
-
-            _ = await waiter.result
-            HZ.close(readEnd)
-            HZ.close(writeEnd)
+        guard let readIdentity = fifoIdentity(pipe.read),
+              let writeIdentity = fifoIdentity(pipe.write)
+        else {
+            return .present("wake pipe descriptors were not FIFOs before the forced interleaving")
         }
 
-        state.set("stop")
-        HZ.waitBlocking(churnDone)
+        let entered = DispatchSemaphore(value: 0)
+        let release = DispatchSemaphore(value: 0)
+        let finished = DispatchSemaphore(value: 0)
 
-        let hits = state.count
+        let wakeThread = Thread { [runtime = runtime!] in
+            runtime.wakeForTesting {
+                entered.signal()
+                HZ.waitBlocking(release)
+            }
 
-        if hits > 0 {
-            return .present(
-                "observed \(hits) stray byte write(s) into freshly opened files across \(iterations) shutdown/register races"
+            finished.signal()
+        }
+
+        HZ.step("enter wake and pause immediately before its write")
+        wakeThread.start()
+        HZ.waitBlocking(entered)
+
+        HZ.step("shutdown while the wake remains suspended")
+        runtime!.shutdown()
+
+        while !runtime!.reactorThreadFinishedForTesting {
+            usleep(1_000)
+        }
+
+        guard fifoIdentity(pipe.read) == readIdentity,
+              fifoIdentity(pipe.write) == writeIdentity
+        else {
+            release.signal()
+            HZ.waitBlocking(finished)
+            return .present("reactor shutdown closed or replaced its wake pipe while a wake was still in flight")
+        }
+
+        HZ.step("drop the external runtime reference while the wake still owns the runtime")
+        runtime = nil
+
+        var fresh: [Int32] = []
+        defer { fresh.forEach { _ = Darwin.close($0) } }
+
+        for index in 0..<32 {
+            let descriptor = Darwin.open(
+                directory.appendingPathComponent("fresh-\(index)").path,
+                O_RDWR | O_CREAT | O_TRUNC | O_CLOEXEC,
+                mode_t(0o600)
             )
+
+            guard descriptor >= 0 else {
+                release.signal()
+                HZ.waitBlocking(finished)
+                return .present("could not open fresh descriptor during forced interleaving: errno \(errno)")
+            }
+
+            if descriptor == pipe.read || descriptor == pipe.write {
+                release.signal()
+                HZ.waitBlocking(finished)
+                _ = Darwin.close(descriptor)
+                return .present("wake-pipe descriptor \(descriptor) was reused while wake() was still in flight")
+            }
+
+            fresh.append(descriptor)
         }
 
-        return .inconclusive(
-            "no stray write observed across \(iterations) races; the wake-after-close race remains structurally proven but unobserved"
+        guard fifoIdentity(pipe.read) == readIdentity,
+              fifoIdentity(pipe.write) == writeIdentity
+        else {
+            release.signal()
+            HZ.waitBlocking(finished)
+            return .present("wake pipe lost its identity before the suspended wake was released")
+        }
+
+        HZ.step("release the suspended wake")
+        release.signal()
+        HZ.waitBlocking(finished)
+
+        for descriptor in fresh {
+            var info = stat()
+
+            guard Darwin.fstat(descriptor, &info) == 0 else {
+                return .present("fresh descriptor \(descriptor) became invalid during the forced interleaving")
+            }
+
+            if info.st_size > 0 {
+                return .present("the in-flight wake wrote into freshly opened descriptor \(descriptor)")
+            }
+        }
+
+        return .absent(
+            "forced in-flight wake kept the original wake pipe alive across completed shutdown and external runtime release; no descriptor was reused or written"
         )
     }
 }
