@@ -81,9 +81,54 @@ public struct Source: ~Copyable {
 
     /// Borrows the complete logical readable buffer as at most two physical regions.
     ///
-    /// `first` precedes `second` logically. Either region may be empty. Pointers are valid
-    /// only for the duration of `body`.
+    /// `first` precedes `second` logically. Either region may be empty. The spans are
+    /// non-escapable: they cannot outlive `body`, and `Result` cannot carry them out.
     public borrowing func withReadableRegions<
+        Result
+    >(
+        _ body: (
+            RawSpan,
+            RawSpan
+        ) throws -> Result
+    ) rethrows -> Result {
+        try buffer
+            .withReadableRegions {
+                first,
+                second in
+
+                try body(
+                    RawSpan(_unsafeBytes: first),
+                    RawSpan(_unsafeBytes: second)
+                )
+            }
+    }
+
+    /// Borrows the first contiguous readable region.
+    ///
+    /// Ring-backed storage can wrap, so this region may contain fewer bytes than
+    /// `bufferedByteCount`. Algorithms that need the complete logical buffer in one
+    /// operation should use `withReadableRegions(_:)`.
+    public borrowing func withBytes<
+        Result
+    >(
+        _ body: (
+            RawSpan
+        ) throws -> Result
+    ) rethrows -> Result {
+        try buffer
+            .withReadableRegions {
+                first,
+                _ in
+
+                try body(
+                    RawSpan(_unsafeBytes: first)
+                )
+            }
+    }
+
+    /// Pointer form of `withReadableRegions(_:)` for package-internal algorithms and
+    /// benchmarks. Pointers are valid only for the duration of `body`.
+    package borrowing func withUnsafeReadableRegions<
         Result
     >(
         _ body: (
@@ -97,12 +142,9 @@ public struct Source: ~Copyable {
             )
     }
 
-    /// Borrows the first contiguous readable region.
-    ///
-    /// Ring-backed storage can wrap, so this region may contain fewer bytes than
-    /// `bufferedByteCount`. Algorithms that need the complete logical buffer in one
-    /// operation should use `withReadableRegions(_:)`.
-    public borrowing func withBytes<
+    /// Pointer form of `withBytes(_:)` for package-internal algorithms and benchmarks.
+    /// The pointer is valid only for the duration of `body`.
+    package borrowing func withUnsafeBytes<
         Result
     >(
         _ body: (

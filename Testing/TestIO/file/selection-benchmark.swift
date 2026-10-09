@@ -627,11 +627,13 @@ struct LineSelectionAccumulator {
         if selected,
            !fragment.bytes.isEmpty
         {
-            selectedLineBytes.append(
-                contentsOf: fragment.bytes
-            )
+            fragment.bytes.withUnsafeBytes {
+                selectedLineBytes.append(
+                    contentsOf: $0
+                )
+            }
             selectedByteCopyCount += UInt64(
-                fragment.bytes.count
+                fragment.bytes.byteCount
             )
             peakSelectedLineByteCount = max(
                 peakSelectedLineByteCount,
@@ -640,7 +642,7 @@ struct LineSelectionAccumulator {
         }
 
         bytesExamined += UInt64(
-            fragment.bytes.count
+            fragment.bytes.byteCount
         )
 
         if fragment.ending == .line_feed {

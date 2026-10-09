@@ -129,7 +129,7 @@ extension TestIO {
                         try source.prepare()
 
                     let bytes =
-                        source.withBytes {
+                        source.withUnsafeBytes {
                             Array(
                                 $0
                             )

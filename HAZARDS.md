@@ -288,6 +288,18 @@ than by a probe.
   the native path fail cleanly, remove the partial destination, and fall back to
   Foundation instead of growing descriptors and stack without bound.
 
-Open: public byte views (`ByteLineFragment.bytes`, `Source.withBytes`/`withReadableRegions`,
-backend and kernel parameters) are still escapable `Unsafe*BufferPointer`s; moving them to
-`RawSpan`/`MutableRawSpan` is a separate public-API change.
+## Cluster 9: non-escapable byte views, async write progress
+
+- Public byte views are `RawSpan`: `ByteLineFragment.bytes` (the fragment is now
+  `~Escapable`), `Source.withBytes`, `Source.withReadableRegions`, and the
+  `ByteMatchKernel.walk` parameter. Retaining any of them past its callback is a compile
+  error; `tio_core` `ownership-compile-rejections` checks both a positive control and the
+  rejections. Pointer forms remain as package-only `withUnsafeBytes` /
+  `withUnsafeReadableRegions` for internal algorithms and benchmarks. Built-in kernels
+  touch raw memory only inside `RawSpan.withUnsafeBytes` and call `body` outside it.
+- Backend protocols (`SourceBackend.refill`, `DestinationBackend.drain`) keep raw pointers
+  by design: backends are the syscall boundary. Every reported count is validated; a
+  backend must not retain the pointers past the call.
+- Async `Destination.write(_:io:deadline:)` no longer loses accepted progress. A write
+  failure after progress is deferred to the next call; a failed wait after progress
+  returns `.partial`. Gated probe: `async-destination-progress-before-error`.

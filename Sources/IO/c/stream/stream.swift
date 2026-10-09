@@ -58,7 +58,7 @@ private extension Source {
             switch try prepare() {
             case .bytes:
                 var offeredCount = 0
-                let result = try withBytes { readable in
+                let result = try withUnsafeBytes { readable in
                     offeredCount = boundedReadableCount(
                         availableCount: readable.count,
                         transferred: transferred,

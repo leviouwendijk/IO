@@ -35,7 +35,7 @@ extension TestIO {
 
             if let first = expected.first {
                 let stopped = bytes.withUnsafeBytes { raw in
-                    ByteMatch.simd32.walk(raw, needle: 0x0A, from: 0) { _ in .stop }
+                    ByteMatch.simd32.walk(RawSpan(_unsafeBytes: raw), needle: 0x0A, from: 0) { _ in .stop }
                 }
                 try expectEqual(stopped, .stopped(at: first), "kernel stop semantics")
             }
@@ -377,7 +377,7 @@ private extension TestIO {
         while true {
             let result = try scanner.scan(using: kernel) { fragment in
                 values.append(
-                    "\(fragment.lineNumber):\(fragment.byteRange.lowerBound)-\(fragment.byteRange.upperBound):\(fragment.ending):\(Array(fragment.bytes))"
+                    "\(fragment.lineNumber):\(fragment.byteRange.lowerBound)-\(fragment.byteRange.upperBound):\(fragment.ending):\(fragment.bytes.withUnsafeBytes { Array($0) })"
                 )
                 return .continue
             }
@@ -398,7 +398,7 @@ private extension TestIO {
         kernel: Kernel.Type
     ) -> [Int] {
         var matches: [Int] = []
-        _ = kernel.walk(bytes, needle: 0x0A, from: 0) { index in
+        _ = kernel.walk(RawSpan(_unsafeBytes: bytes), needle: 0x0A, from: 0) { index in
             matches.append(index)
             return .continue
         }

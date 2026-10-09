@@ -809,7 +809,7 @@ extension TestIO {
             switch try source.prepare() {
             case .bytes:
                 let count = source.bufferedByteCount
-                lineFeeds += source.withBytes {
+                lineFeeds += source.withUnsafeBytes {
                     syntheticCountLineFeeds(
                         $0
                     )
@@ -978,7 +978,8 @@ extension TestIO {
                     let count = source.bufferedByteCount
                     lineFeeds += source.withBytes { bytes in
                         var local: UInt64 = 0
-                        for byte in bytes where byte == 0x0A {
+                        for offset in 0..<bytes.byteCount
+                        where bytes.unsafeLoad(fromByteOffset: offset, as: UInt8.self) == 0x0A {
                             local += 1
                         }
                         return local

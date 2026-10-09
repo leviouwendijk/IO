@@ -1,5 +1,5 @@
 {
-  "originHash" : "3f85fdd7da7e60775a660e8559e35eaac7150c16c584de8b2178df4daf89bcfb",
+  "originHash" : "34789407890031081bbedd7a4cf89cd2fea497da3ed69d77168258b134febfa8",
   "pins" : [
     {
       "identity" : "atomos",
@@ -7,7 +7,7 @@
       "location" : "https://github.com/leviouwendijk/Atomos.git",
       "state" : {
         "branch" : "master",
-        "revision" : "7c42aff0baef9cc1a500ec7207caad8146dfeac8"
+        "revision" : "5ffdb160c4913e02214020eb75ac620900cf2914"
       }
     }
   ],

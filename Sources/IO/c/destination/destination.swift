@@ -142,30 +142,50 @@ public struct Destination: ~Copyable {
         var accepted =
             0
 
+        // Accepted bytes are always reported. Once part of `bytes` has been accepted, a
+        // write failure is deferred to the next call (as the synchronous path defers it),
+        // and a failed wait (deadline, cancellation) returns the progress; the caller's
+        // next call observes the same condition again.
         while accepted
                 < bytes.count
         {
-            let result =
-                try bytes.withUnsafeBytes {
-                    raw in
+            let result: DestinationWrite
 
-                    let remaining =
-                        UnsafeRawBufferPointer(
-                            start:
-                                raw.baseAddress?
-                                    .advanced(
-                                        by:
-                                            accepted
-                                    ),
-                            count:
-                                raw.count
-                                    - accepted
+            do {
+                result =
+                    try bytes.withUnsafeBytes {
+                        raw in
+
+                        let remaining =
+                            UnsafeRawBufferPointer(
+                                start:
+                                    raw.baseAddress?
+                                        .advanced(
+                                            by:
+                                                accepted
+                                        ),
+                                count:
+                                    raw.count
+                                        - accepted
+                            )
+
+                        return try write(
+                            remaining
                         )
-
-                    return try write(
-                        remaining
-                    )
+                    }
+            } catch {
+                guard accepted > 0 else {
+                    throw error
                 }
+
+                state.pendingError = error
+
+                return .partial(
+                    try PositiveByteCount(
+                        accepted
+                    )
+                )
+            }
 
             switch result {
             case .complete:
@@ -187,6 +207,16 @@ public struct Destination: ~Copyable {
                 return .complete
             }
 
+            // The synchronous write deferred a failure behind the prefix it accepted.
+            // Report the progress now; the failure surfaces on the next call.
+            if state.pendingError != nil {
+                return .partial(
+                    try PositiveByteCount(
+                        accepted
+                    )
+                )
+            }
+
             guard let descriptor =
                 backend.readinessDescriptor
             else {
@@ -201,14 +231,26 @@ public struct Destination: ~Copyable {
                 )
             }
 
-            try await io.wait(
-                descriptor:
-                    descriptor,
-                for:
-                    .writable,
-                deadline:
-                    deadline
-            )
+            do {
+                try await io.wait(
+                    descriptor:
+                        descriptor,
+                    for:
+                        .writable,
+                    deadline:
+                        deadline
+                )
+            } catch {
+                guard accepted > 0 else {
+                    throw error
+                }
+
+                return .partial(
+                    try PositiveByteCount(
+                        accepted
+                    )
+                )
+            }
         }
 
         return .complete

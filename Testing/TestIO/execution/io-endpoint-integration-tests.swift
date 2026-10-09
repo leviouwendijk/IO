@@ -309,7 +309,7 @@ extension TestIO {
             }
 
             let chunk =
-                source.withReadableRegions {
+                source.withUnsafeReadableRegions {
                     first,
                     second in
 

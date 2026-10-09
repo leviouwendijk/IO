@@ -1104,7 +1104,7 @@ private extension TestIO {
                 var localChecksum = checksum
                 var fragmentStart = 0
 
-                source.withBytes { readable in
+                source.withUnsafeBytes { readable in
                     var state = ScannerHybridLocalSemanticState(
                         lineNumber: localLineNumber,
                         lineStartOffset: localLineStartOffset,

@@ -765,7 +765,7 @@ extension TestIO {
     static func bufferedBytes(
         _ source: borrowing Source
     ) -> [UInt8] {
-        source.withReadableRegions { first, second in
+        source.withUnsafeReadableRegions { first, second in
             Array(first) + Array(second)
         }
     }

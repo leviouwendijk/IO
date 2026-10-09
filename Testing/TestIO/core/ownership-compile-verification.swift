@@ -48,6 +48,54 @@ extension TestIO {
             moduleSearchPath: moduleSearchPath
         )
 
+        try expectTypechecks(
+            name: "positive-span-view-control",
+            source: """
+            import IO
+
+            func inspect(
+                _ source: borrowing Source,
+                _ scanner: inout ByteLineScanner
+            ) throws -> Int {
+                var total = source.withBytes { $0.byteCount }
+                total += source.withReadableRegions { $0.byteCount + $1.byteCount }
+                _ = try scanner.scan { fragment in
+                    total += fragment.bytes.byteCount
+                    return .continue
+                }
+                return total
+            }
+            """,
+            moduleSearchPath: moduleSearchPath
+        )
+
+        try expectTypecheckFailure(
+            name: "Source-withBytes-span-cannot-escape",
+            source: """
+            import IO
+
+            func probe(
+                _ source: borrowing Source
+            ) -> Int {
+                let span = source.withBytes { $0 }
+                return span.byteCount
+            }
+            """,
+            moduleSearchPath: moduleSearchPath
+        )
+
+        try expectTypecheckFailure(
+            name: "ByteLineFragment-cannot-live-in-escapable-wrapper",
+            source: """
+            import IO
+
+            struct InvalidWrapper {
+                var fragment: ByteLineFragment
+            }
+            """,
+            moduleSearchPath: moduleSearchPath
+        )
+
         let noncopyableTypes = [
             "Source",
             "Destination",

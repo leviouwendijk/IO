@@ -810,7 +810,7 @@ extension TestIO {
                     let count =
                         source.bufferedByteCount
 
-                    totalLineFeeds += source.withBytes {
+                    totalLineFeeds += source.withUnsafeBytes {
                         countLineFeeds(
                             $0
                         )

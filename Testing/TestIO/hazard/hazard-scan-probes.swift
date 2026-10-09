@@ -63,7 +63,7 @@ enum HZScanProbes {
         HZ.step("\(label): scanning with malformed kernel")
         do {
             let result = try scanner.scan(using: kernel) { fragment in
-                fragments.append((fragment.bytes.count, fragment.byteRange))
+                fragments.append((fragment.bytes.byteCount, fragment.byteRange))
                 return .continue
             }
             thrown = "no error (result \(result))"
@@ -115,7 +115,7 @@ enum HZScanProbes {
                     throw TestFailure(message: "scripted callback failure on line 2")
                 }
 
-                firstPass.append(String(decoding: fragment.bytes, as: UTF8.self))
+                firstPass.append(fragment.bytes.withUnsafeBytes { String(decoding: $0, as: UTF8.self) })
                 return .continue
             }
             return .inconclusive("callback failure did not propagate out of scan")
@@ -126,7 +126,7 @@ enum HZScanProbes {
         HZ.step("resumed scan")
         while true {
             let result = try scanner.scan { fragment in
-                secondPass.append(String(decoding: fragment.bytes, as: UTF8.self))
+                secondPass.append(fragment.bytes.withUnsafeBytes { String(decoding: $0, as: UTF8.self) })
                 return .continue
             }
 
@@ -176,7 +176,7 @@ enum HZScanProbes {
 
 enum HZNegativeIndexKernel: ByteMatchKernel {
     static func walk(
-        _ bytes: UnsafeRawBufferPointer,
+        _ bytes: RawSpan,
         needle: UInt8,
         from start: Int,
         _ body: (Int) throws -> ByteMatchDirective
@@ -188,24 +188,24 @@ enum HZNegativeIndexKernel: ByteMatchKernel {
 
 enum HZPastEndIndexKernel: ByteMatchKernel {
     static func walk(
-        _ bytes: UnsafeRawBufferPointer,
+        _ bytes: RawSpan,
         needle: UInt8,
         from start: Int,
         _ body: (Int) throws -> ByteMatchDirective
     ) rethrows -> ByteMatchWalkResult {
-        _ = try body(bytes.count + 16)
+        _ = try body(bytes.byteCount + 16)
         return .complete
     }
 }
 
 enum HZBackwardIndexKernel: ByteMatchKernel {
     static func walk(
-        _ bytes: UnsafeRawBufferPointer,
+        _ bytes: RawSpan,
         needle: UInt8,
         from start: Int,
         _ body: (Int) throws -> ByteMatchDirective
     ) rethrows -> ByteMatchWalkResult {
-        guard bytes.count > 6 else {
+        guard bytes.byteCount > 6 else {
             return .complete
         }
 

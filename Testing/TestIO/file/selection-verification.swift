@@ -506,9 +506,9 @@ extension TestIO {
 
         let before =
             source.withBytes {
-                Array(
-                    $0
-                )
+                $0.withUnsafeBytes {
+                    Array($0)
+                }
             }
 
         do {
@@ -527,7 +527,7 @@ extension TestIO {
         }
 
         guard source.withBytes({
-            Array($0)
+            $0.withUnsafeBytes { Array($0) }
         }) == before
         else {
             throw TestFailure(
@@ -556,7 +556,7 @@ extension TestIO {
         }
 
         guard source.withBytes({
-            Array($0)
+            $0.withUnsafeBytes { Array($0) }
         }) == before
         else {
             throw TestFailure(
@@ -581,7 +581,8 @@ extension TestIO {
         }
 
         guard source.withReadableRegions({ first, second in
-            Array(first) + Array(second)
+            first.withUnsafeBytes { Array($0) }
+                + second.withUnsafeBytes { Array($0) }
         }) == [
             2,
             3,

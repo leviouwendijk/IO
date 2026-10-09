@@ -94,7 +94,7 @@ extension TestIO {
         var stoppedOnce = false
 
         let first = try scanner.scan { fragment in
-            collected.append(contentsOf: fragment.bytes)
+            fragment.bytes.withUnsafeBytes { collected.append(contentsOf: $0) }
 
             if !stoppedOnce,
                fragment.ending == .none
@@ -115,7 +115,7 @@ extension TestIO {
         var moved = consume scanner
 
         let second = try moved.scan { fragment in
-            collected.append(contentsOf: fragment.bytes)
+            fragment.bytes.withUnsafeBytes { collected.append(contentsOf: $0) }
             return .continue
         }
 

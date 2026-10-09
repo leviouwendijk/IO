@@ -572,7 +572,7 @@ private extension TestIO {
             switch try source.prepare() {
             case .bytes:
                 let count = source.bufferedByteCount
-                lineFeeds += source.withBytes {
+                lineFeeds += source.withUnsafeBytes {
                     if useMemchr {
                         scannerProbeCountLineFeedsMemchr(
                             $0
@@ -647,7 +647,7 @@ private extension TestIO {
                 var localCompletedLines = completedLines
                 var localChecksum = checksum
 
-                source.withBytes { readable in
+                source.withUnsafeBytes { readable in
                     var fragmentStart = 0
 
                     while fragmentStart < readable.count {
@@ -1172,7 +1172,7 @@ private extension TestIO {
         value &+= fragment.lineStartOffset
         value &+= fragment.byteRange.lowerBound
         value &+= fragment.byteRange.upperBound
-        value &+= UInt64(fragment.bytes.count)
+        value &+= UInt64(fragment.bytes.byteCount)
 
         switch fragment.ending {
         case .none:

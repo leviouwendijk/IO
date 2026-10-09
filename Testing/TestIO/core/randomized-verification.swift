@@ -199,9 +199,11 @@ extension TestIO {
 
                 let result = try scanner.scan {
                     fragment in
-                    reconstructed.append(
-                        contentsOf: fragment.bytes
-                    )
+                    fragment.bytes.withUnsafeBytes {
+                        reconstructed.append(
+                            contentsOf: $0
+                        )
+                    }
 
                     if fragment.ending == .line_feed {
                         reconstructed.append(

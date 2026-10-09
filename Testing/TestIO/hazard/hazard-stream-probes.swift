@@ -47,6 +47,11 @@ enum HZStreamProbes {
                 body: { try destinationProgressBeforeError() }
             ),
             .init(
+                "async-destination-progress-before-error",
+                finding: "#7a",
+                body: { try await asyncDestinationProgressBeforeError() }
+            ),
+            .init(
                 "darwin-large-direct-write",
                 finding: "#10",
                 timeoutSeconds: 30,
@@ -86,7 +91,7 @@ enum HZStreamProbes {
             return .inconclusive("requestMore did not append bytes")
         }
 
-        let (firstCount, logical) = source.withReadableRegions { first, second in
+        let (firstCount, logical) = source.withUnsafeReadableRegions { first, second in
             (first.count, Array(first) + Array(second))
         }
 
@@ -353,6 +358,65 @@ enum HZStreamProbes {
         }
     }
 
+    /// Async form of #7a. The backend accepts 3 bytes, then throws, and reports a
+    /// writable readiness descriptor, so the async loop waits and writes again. The
+    /// accepted prefix must be reported, and the failure must surface on the next call.
+    static func asyncDestinationProgressBeforeError() async throws -> HazardOutcome {
+        let (readEnd, writeEnd) = try HZ.pipePair()
+        defer {
+            HZ.close(readEnd)
+            HZ.close(writeEnd)
+        }
+
+        var destination = Destination(
+            HZThrowOnSecondDrainBackend(
+                acceptPerDrain: 3,
+                readinessDescriptor: writeEnd
+            ),
+            bufferCapacity: try BufferCapacity(4)
+        )
+        let payload = (0..<10).map { UInt8($0) }
+
+        HZ.step("async write of 10 bytes: accept 3, then throw; readiness is writable")
+        let result: DestinationWrite
+
+        do {
+            result = try await destination.write(payload, io: IO.blocking)
+        } catch {
+            let captured = destination.inspectBackend().capturedBytes ?? []
+
+            if !captured.isEmpty {
+                return .present(
+                    "async write threw '\(error)' after the backend had already accepted \(captured.count) caller bytes; the accepted prefix is not reported"
+                )
+            }
+
+            return .inconclusive("async write threw \(error) with nothing accepted")
+        }
+
+        let captured = destination.inspectBackend().capturedBytes ?? []
+
+        guard case .partial(let accepted) = result,
+              accepted.value == captured.count
+        else {
+            return .inconclusive("async write returned \(result); backend captured \(captured.count) bytes")
+        }
+
+        HZ.step("next write surfaces the deferred failure")
+
+        do {
+            _ = try destination.write([10])
+        } catch {
+            return .absent(
+                "async write reported .partial(\(accepted.value)) matching the backend-accepted prefix; the deferred failure surfaced on the next write"
+            )
+        }
+
+        return .present(
+            "async write reported .partial(\(accepted.value)) but the backend failure was lost"
+        )
+    }
+
     /// Darwin `write(2)` rejects counts above INT_MAX. `/dev/null` never reads
     /// the pages, so the 2 GiB allocation stays untouched.
     static func darwinLargeDirectWrite() throws -> HazardOutcome {
@@ -393,13 +457,20 @@ struct HZThrowOnSecondDrainBackend: DestinationBackend, ~Copyable {
     private var captured: [UInt8]
     private var drainCount: Int
     private let acceptPerDrain: Int
+    private let readiness: Int32?
 
     init(
-        acceptPerDrain: Int
+        acceptPerDrain: Int,
+        readinessDescriptor: Int32? = nil
     ) {
         self.captured = []
         self.drainCount = 0
         self.acceptPerDrain = acceptPerDrain
+        self.readiness = readinessDescriptor
+    }
+
+    var readinessDescriptor: Int32? {
+        readiness
     }
 
     mutating func drain(

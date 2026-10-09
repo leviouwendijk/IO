@@ -26,16 +26,31 @@ public enum ByteLineScanResult: Sendable, Equatable {
 
 /// Borrowed, non-owning view of one contiguous fragment of a logical byte line.
 ///
-/// `bytes` points into Source-owned storage and is valid only during the callback that
-/// receives this value. A logical line may arrive as many fragments when it crosses
+/// `bytes` views Source-owned storage. The fragment is non-escapable, so the compiler
+/// confines it and its bytes to the callback that receives it. A logical line may arrive as many fragments when it crosses
 /// Source-buffer boundaries. `lineStartOffset` and `byteRange` are absolute byte offsets
 /// in the source stream, making boundary verification independent of UTF-8 decoding.
-public struct ByteLineFragment {
+public struct ByteLineFragment: ~Escapable {
     public let lineNumber: UInt64
     public let lineStartOffset: UInt64
     public let byteRange: Range<UInt64>
-    public let bytes: UnsafeRawBufferPointer
+    public let bytes: RawSpan
     public let ending: ByteLineFragmentEnding
+
+    @_lifetime(copy bytes)
+    init(
+        lineNumber: UInt64,
+        lineStartOffset: UInt64,
+        byteRange: Range<UInt64>,
+        bytes: RawSpan,
+        ending: ByteLineFragmentEnding
+    ) {
+        self.lineNumber = lineNumber
+        self.lineStartOffset = lineStartOffset
+        self.byteRange = byteRange
+        self.bytes = bytes
+        self.ending = ending
+    }
 }
 
 /// Copyable observation of byte-line scanning work.
@@ -150,12 +165,12 @@ public struct ByteLineScanner: ~Copyable {
                 var failure: (any Error)?
 
                 do {
-                    try source.withBytes { readable in
+                    try source.withUnsafeBytes { readable in
                         var fragmentStart = 0
                         let readableBase = readable.baseAddress
 
                         _ = try kernel.walk(
-                            readable,
+                            RawSpan(_unsafeBytes: readable),
                             needle: 0x0A,
                             from: 0
                         ) { index in
@@ -189,7 +204,7 @@ public struct ByteLineScanner: ~Copyable {
                                     lineNumber: localLineNumber,
                                     lineStartOffset: localLineStartOffset,
                                     byteRange: fragmentStartOffset..<fragmentEndOffset,
-                                    bytes: fragmentBytes,
+                                    bytes: RawSpan(_unsafeBytes: fragmentBytes),
                                     ending: .line_feed
                                 )
                             )
@@ -232,7 +247,7 @@ public struct ByteLineScanner: ~Copyable {
                                     lineNumber: localLineNumber,
                                     lineStartOffset: localLineStartOffset,
                                     byteRange: fragmentStartOffset..<fragmentEndOffset,
-                                    bytes: fragmentBytes,
+                                    bytes: RawSpan(_unsafeBytes: fragmentBytes),
                                     ending: .none
                                 )
                             )
@@ -275,15 +290,16 @@ public struct ByteLineScanner: ~Copyable {
 
             case .end:
                 if currentLineHasBytes {
+                    let emptyBytes = UnsafeRawBufferPointer(
+                        start: nil,
+                        count: 0
+                    )
                     let directive = try body(
                         .init(
                             lineNumber: lineNumber,
                             lineStartOffset: lineStartOffset,
                             byteRange: absoluteOffset..<absoluteOffset,
-                            bytes: UnsafeRawBufferPointer(
-                                start: nil,
-                                count: 0
-                            ),
+                            bytes: RawSpan(_unsafeBytes: emptyBytes),
                             ending: .end
                         )
                     )

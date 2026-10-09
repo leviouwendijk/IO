@@ -158,6 +158,7 @@ enum HazardRunner {
         "line-fingerprint-structure",
         "reactor-inflight-wake-shutdown",
         "reactor-wake-after-shutdown",
+        "async-destination-progress-before-error",
     ]
 
     static var probes: [HazardProbe] {

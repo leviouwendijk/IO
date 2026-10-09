@@ -1,6 +1,14 @@
 #!/bin/zsh
 
-(
+function general_test_suite() {
+    local testbins=("$@")
+
+    for testbin in "${testbins[@]}"; do
+        swift run "$testbin"
+    done
+}
+
+function targeted_test_suite() {
     # swift run -c release tio_fs --filesystem-enumeration-decompose-heavy;
     # swift run -c release tio_fs --filesystem-compare-heavy;
 
@@ -12,4 +20,69 @@
 
     swift run -c release tio_fs --filesystem-mutation-compare-heavy
     swift run -c release tio_fs --filesystem-mutation-create-strategy-heavy
+}
+
+(
+    set -euo pipefail
+
+    selection="${1:-cluster9}"
+
+    case "$selection" in
+        all)
+            testbins=(
+                tio
+                tio_core
+                tio_stream
+                tio_scan
+                tio_file
+                tio_overhead
+                tio_fs
+                tio_exec
+                tio_hazard
+                tio_hazard_gate
+            )
+            ;;
+
+        core)
+            testbins=(
+                tio
+                tio_core
+                tio_stream
+                tio_scan
+            )
+            ;;
+
+        filesystem)
+            testbins=(
+                tio_file
+                tio_fs
+            )
+            ;;
+
+        hazard)
+            testbins=(
+                tio_hazard
+                tio_hazard_gate
+            )
+            ;;
+
+        cluster9)
+            testbins=(
+                tio_hazard_gate
+                tio_hazard
+                tio_core
+                tio_stream
+                tio_scan
+            )
+            ;;
+
+        *)
+            print -u2 "Unknown test selection: $selection"
+            exit 1
+            ;;
+    esac
+
+    general_test_suite "${testbins[@]}"
+
+    # targeted_test_suite
 )
