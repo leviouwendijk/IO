@@ -21,6 +21,11 @@ import Glibc
 /// refused with `EPIPE` without entering the kernel, because the kernel would raise
 /// `SIGPIPE` for them.
 ///
+/// Blocking descriptors: every syscall runs under the lifecycle lock, so a blocking
+/// `recv` would hold that lock until data arrives and stall the write half and
+/// `close()` behind it. With `setNonblocking: false` the descriptor must already be
+/// `O_NONBLOCK`; a blocking descriptor is refused with `EINVAL`.
+///
 /// Ownership on failure: if `init` throws, the descriptor is left open and remains
 /// owned by the caller, even when `ownsDescriptor` is `true`.
 public final class NonblockingSocketBackend: SourceBackend, DestinationBackend, @unchecked Sendable {
@@ -50,6 +55,10 @@ public final class NonblockingSocketBackend: SourceBackend, DestinationBackend, 
         // class initializer that has fully initialized `self` still runs `deinit`,
         // which would close a descriptor the caller still owns; failing first
         // leaves the descriptor open and owned by the caller.
+        if !setNonblocking {
+            try NonblockingSocketBackend.requireNonblocking(descriptor)
+        }
+
         let suppression = POSIXBrokenPipeSignal.suppress(
             descriptor: descriptor
         )
@@ -265,6 +274,26 @@ public final class NonblockingSocketBackend: SourceBackend, DestinationBackend, 
             }
 
             return try body(descriptor)
+        }
+    }
+
+    /// Refuses a descriptor that is not already `O_NONBLOCK`. Runs before any other
+    /// side effect in `init`, so a refused descriptor is returned to the caller untouched.
+    private static func requireNonblocking(
+        _ descriptor: Int32
+    ) throws {
+        #if canImport(Darwin)
+        let current = Darwin.fcntl(descriptor, F_GETFL)
+        #elseif canImport(Glibc)
+        let current = Glibc.fcntl(descriptor, F_GETFL)
+        #endif
+
+        guard current >= 0 else {
+            throw POSIXIOError(operation: "fcntl(F_GETFL)", code: errno)
+        }
+
+        guard current & O_NONBLOCK != 0 else {
+            throw POSIXIOError(operation: "adopt blocking socket", code: EINVAL)
         }
     }
 

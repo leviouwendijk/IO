@@ -159,6 +159,7 @@ enum HazardRunner {
         "reactor-inflight-wake-shutdown",
         "reactor-wake-after-shutdown",
         "async-destination-progress-before-error",
+        "socket-blocking-adopt-refused",
     ]
 
     static var probes: [HazardProbe] {

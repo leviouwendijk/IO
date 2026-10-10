@@ -42,6 +42,11 @@ enum HZStreamProbes {
                 body: { try socketAfterCloseFdReuse() }
             ),
             .init(
+                "socket-blocking-adopt-refused",
+                finding: "sk",
+                body: { try socketBlockingAdoptRefused() }
+            ),
+            .init(
                 "destination-progress-before-error",
                 finding: "#7a",
                 body: { try destinationProgressBeforeError() }
@@ -149,6 +154,52 @@ enum HZStreamProbes {
         } catch let error as POSIXIOError {
             return .absent("vector path surfaced \(error) and the process survived")
         }
+    }
+
+    /// A blocking socket adopted with `setNonblocking: false` would let a pending
+    /// `recv` hold the lifecycle lock and stall `send` and `close()` behind it.
+    static func socketBlockingAdoptRefused() throws -> HazardOutcome {
+        let (local, peer) = try HZ.socketPair()
+        defer {
+            HZ.close(local)
+            HZ.close(peer)
+        }
+
+        HZ.step("adopt a blocking socket with setNonblocking: false")
+        let refusal: POSIXIOError
+        do {
+            _ = try NonblockingSocketBackend(
+                descriptor: local,
+                setNonblocking: false,
+                ownsDescriptor: false
+            )
+            return .present("blocking socket was adopted; a pending recv would hold the lifecycle lock and stall send and close")
+        } catch let error as POSIXIOError {
+            refusal = error
+        }
+
+        guard Darwin.fcntl(local, F_GETFD) != -1 else {
+            return .present("blocking socket was refused (\(refusal)) but the caller-owned descriptor was closed")
+        }
+
+        guard Darwin.fcntl(local, F_GETFL) & O_NONBLOCK == 0 else {
+            return .present("blocking socket was refused (\(refusal)) but its flags were changed")
+        }
+
+        HZ.step("adopt an already-nonblocking socket with setNonblocking: false")
+        let flags = Darwin.fcntl(peer, F_GETFL)
+        guard flags >= 0, Darwin.fcntl(peer, F_SETFL, flags | O_NONBLOCK) == 0 else {
+            return .inconclusive("could not make the peer socket nonblocking (errno \(errno))")
+        }
+
+        let adopted = try NonblockingSocketBackend(
+            descriptor: peer,
+            setNonblocking: false,
+            ownsDescriptor: false
+        )
+        let readinessText = adopted.readinessDescriptor.map { "\($0)" } ?? "nil"
+
+        return .absent("blocking socket refused with \(refusal), descriptor left open and unchanged; nonblocking socket adopted (readinessDescriptor: \(readinessText))")
     }
 
     static func socketPeerCloseScalarSend() throws -> HazardOutcome {
