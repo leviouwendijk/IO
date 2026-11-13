@@ -41,6 +41,10 @@ public protocol DestinationBackend:
 
     mutating func flush() throws -> DestinationFlush
 
+    /// Makes bytes already drained to the backend durable on stable storage.
+    /// Separate from `flush()`, which is logical only.
+    mutating func synchronize() throws
+
     /// Produces a detached, copyable observation of backend state for diagnostics/tests.
     mutating func inspect() -> DestinationBackendInspection
 }
@@ -61,6 +65,9 @@ public extension DestinationBackend where Self: ~Copyable {
 
     mutating func flush() throws -> DestinationFlush {
         .complete
+    }
+
+    mutating func synchronize() throws {
     }
 
     mutating func inspect() -> DestinationBackendInspection {

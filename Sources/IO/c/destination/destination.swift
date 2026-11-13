@@ -278,6 +278,19 @@ public struct Destination: ~Copyable {
         )
     }
 
+    /// Flushes staged bytes, then asks the backend to make them durable.
+    /// Returns `.unavailable` without synchronizing when the flush could not
+    /// complete.
+    public mutating func synchronize()
+        throws -> DestinationFlush
+    {
+        guard try flush() == .complete else {
+            return .unavailable
+        }
+        try backend.synchronize()
+        return .complete
+    }
+
     /// Drives buffered Destination bytes to the backend, suspending only when the
     /// synchronous flush reports endpoint backpressure.
     public mutating func flush(

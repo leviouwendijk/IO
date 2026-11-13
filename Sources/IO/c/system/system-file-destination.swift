@@ -19,6 +19,7 @@ public enum SystemFileDestinationError: Error, Sendable, Equatable {
     case open(path: String, code: Int32)
     case write(path: String, code: Int32)
     case close(path: String, code: Int32)
+    case synchronize(path: String, code: Int32)
     case closed(path: String)
 }
 
@@ -32,7 +33,9 @@ public enum SystemFileDestinationError: Error, Sendable, Equatable {
 /// - short writes are returned as short progress rather than hidden;
 /// - `EINTR` is retried mechanically because Destination has no retry state;
 /// - `EAGAIN` / `EWOULDBLOCK` surface as `.unavailable`;
-/// - `flush()` is logical only and does not imply `fsync`.
+/// - `flush()` is logical only and does not imply `fsync`;
+/// - `synchronize()` is the explicit durability boundary (`F_FULLFSYNC` on
+///   Darwin, `fsync(2)` elsewhere).
 ///
 /// Durability is intentionally separate from logical Destination flushing.
 public struct SystemFileDestination: DestinationBackend, ~Copyable {
@@ -215,6 +218,23 @@ public struct SystemFileDestination: DestinationBackend, ~Copyable {
         return .complete
     }
 
+    public mutating func synchronize() throws {
+        guard descriptor >= 0 else {
+            throw SystemFileDestinationError.closed(
+                path: path
+            )
+        }
+
+        guard systemDestinationSynchronize(
+            descriptor
+        ) == 0 else {
+            throw SystemFileDestinationError.synchronize(
+                path: path,
+                code: errno
+            )
+        }
+    }
+
     public mutating func close() throws {
         guard descriptor >= 0 else {
             return
@@ -298,6 +318,22 @@ private func systemDestinationWrite(
         buffer,
         count
     )
+    #endif
+}
+
+@inline(__always)
+private func systemDestinationSynchronize(
+    _ descriptor: Int32
+) -> Int32 {
+    #if canImport(Darwin)
+    // fsync(2) on Darwin only reaches the drive cache; F_FULLFSYNC flushes it.
+    // Some filesystems reject it, so fall back to fsync.
+    if fcntl(descriptor, F_FULLFSYNC) == 0 {
+        return 0
+    }
+    return Darwin.fsync(descriptor)
+    #elseif canImport(Glibc)
+    Glibc.fsync(descriptor)
     #endif
 }
 
