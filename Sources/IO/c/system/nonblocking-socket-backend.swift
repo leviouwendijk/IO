@@ -184,6 +184,11 @@ public final class NonblockingSocketBackend: SourceBackend, DestinationBackend, 
                     return .bytes(.knownPositive(result))
                 }
 
+                // No progress without an error: errno is not set by this call.
+                if result == 0 {
+                    return .unavailable
+                }
+
                 let code = errno
 
                 if code == EINTR {

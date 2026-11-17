@@ -285,19 +285,25 @@ private func systemDestinationOpen(
             | O_CLOEXEC
     }
 
-    #if canImport(Darwin)
-    return Darwin.open(
-        path,
-        flags,
-        mode_t(permissions)
-    )
-    #elseif canImport(Glibc)
-    return Glibc.open(
-        path,
-        flags,
-        mode_t(permissions)
-    )
-    #endif
+    while true {
+        #if canImport(Darwin)
+        let descriptor = Darwin.open(
+            path,
+            flags,
+            mode_t(permissions)
+        )
+        #elseif canImport(Glibc)
+        let descriptor = Glibc.open(
+            path,
+            flags,
+            mode_t(permissions)
+        )
+        #endif
+
+        if descriptor >= 0 || errno != EINTR {
+            return descriptor
+        }
+    }
 }
 
 @inline(__always)
@@ -327,10 +333,21 @@ private func systemDestinationSynchronize(
 ) -> Int32 {
     #if canImport(Darwin)
     // fsync(2) on Darwin only reaches the drive cache; F_FULLFSYNC flushes it.
-    // Some filesystems reject it, so fall back to fsync.
+    // Filesystems without F_FULLFSYNC reject it; only then fall back to fsync.
+    // Any other failure (EIO, ...) is the real result and must not be masked.
     if fcntl(descriptor, F_FULLFSYNC) == 0 {
         return 0
     }
+
+    let code = errno
+
+    guard code == ENOTSUP
+            || code == EINVAL
+            || code == ENOTTY
+    else {
+        return -1
+    }
+
     return Darwin.fsync(descriptor)
     #elseif canImport(Glibc)
     Glibc.fsync(descriptor)

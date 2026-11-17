@@ -98,14 +98,23 @@ public struct FileSystem: Sendable {
         }
     }
 
+    /// Atomically replaces `original` with `replacement`, consuming the
+    /// replacement path. With `followingSymlinks`, a symlink at `original` is
+    /// kept and the file it points to is replaced; the `.c` implementation pays
+    /// for that check only when its regular-file fast path declines.
     public func replace(
         _ original: URL,
-        with replacement: URL
+        with replacement: URL,
+        followingSymlinks: Bool = false
     ) throws {
         switch implementation {
         case .foundation:
+            let target = followingSymlinks
+                ? original.resolvingSymlinksInPath()
+                : original
+
             _ = try FileManager.default.replaceItemAt(
-                original.standardizedFileURL,
+                target.standardizedFileURL,
                 withItemAt:
                     replacement.standardizedFileURL
             )
@@ -113,7 +122,8 @@ public struct FileSystem: Sendable {
         case .c:
             try NativeFileSystemMutation.replace(
                 original,
-                with: replacement
+                with: replacement,
+                followingSymlinks: followingSymlinks
             )
         }
     }
@@ -148,6 +158,20 @@ public struct FileSystem: Sendable {
                 url
             )
         }
+    }
+
+    /// The first symbolic link among `url`'s components below `base`
+    /// (`base` and its ancestors are not checked). `nil` when the path has
+    /// none, including when a missing component ends it. Always native: one
+    /// `fstatat` on Darwin when there is no link.
+    public func firstSymlink(
+        in url: URL,
+        below base: URL
+    ) throws -> FileSymlink? {
+        try NativeSymlinkScan.first(
+            in: url,
+            below: base
+        )
     }
 }
 

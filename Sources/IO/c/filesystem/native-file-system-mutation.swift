@@ -132,9 +132,14 @@ enum NativeFileSystemMutation {
         )
     }
 
+    /// `followingSymlinks`: when the original is a symlink, replace the file it
+    /// points to and keep the link. The native path classifies the original
+    /// with `lstat` anyway, so the link check runs only after it declines and
+    /// the regular-file success path costs nothing extra.
     static func replace(
         _ originalInput: URL,
-        with replacementInput: URL
+        with replacementInput: URL,
+        followingSymlinks: Bool = false
     ) throws {
         #if canImport(Darwin)
         let original =
@@ -153,6 +158,21 @@ enum NativeFileSystemMutation {
             return
         }
         #endif
+
+        if followingSymlinks,
+           isSymbolicLink(
+            originalInput
+           )
+        {
+            try replace(
+                NativeFileSystem.resolve(
+                    originalInput
+                ),
+                with: replacementInput,
+                followingSymlinks: false
+            )
+            return
+        }
 
         _ = try FileManager.default.replaceItemAt(
             originalInput.standardizedFileURL,
@@ -363,12 +383,30 @@ private extension NativeFileSystemMutation {
                         S_IFREG
                     )
                 {
-                    return Darwin.clonefile(
+                    if Darwin.clonefile(
                         sourcePointer,
                         destinationPointer,
                         UInt32(CLONE_ACL)
                             | UInt32(CLONE_NOFOLLOW)
-                    ) == 0
+                    ) == 0 {
+                        return true
+                    }
+
+                    // clonefile never replaces. An occupied destination is
+                    // final; the Foundation fallback would only fail again,
+                    // slower and with a Cocoa error. Unsupported volumes
+                    // (ENOTSUP, EXDEV, ...) keep the fallback.
+                    let code = errno
+
+                    guard code != EEXIST else {
+                        throw FileSystemError(
+                            operation: .copy,
+                            url: destination,
+                            errno: code
+                        )
+                    }
+
+                    return false
                 }
 
                 guard sourceKind
@@ -939,7 +977,7 @@ private extension NativeFileSystemMutation {
         errno = 0
 
         if let value =
-                acl_get_file(
+                acl_get_link_np(
                     pointer,
                     ACL_TYPE_EXTENDED
                 )
@@ -1198,17 +1236,11 @@ private extension NativeFileSystemMutation {
             url: url
         )
 
-        guard systemUnlinkAt(
+        try removeEmptiedDirectory(
             AT_FDCWD,
             pointer,
-            AT_REMOVEDIR
-        ) == 0 else {
-            throw FileSystemError(
-                operation: .remove,
-                url: url,
-                errno: errno
-            )
-        }
+            url: url
+        )
     }
 
     /// Removes every entry from an already-open directory.
@@ -1427,6 +1459,65 @@ private extension NativeFileSystemMutation {
                 depth: depth + 1
             )
         }
+
+        try removeEmptiedDirectory(
+            parentDescriptor,
+            name,
+            url: url
+        )
+    }
+
+    /// Removes a directory whose contents were just removed.
+    ///
+    /// POSIX leaves unspecified whether `readdir` skips entries unlinked during
+    /// iteration. Only when the removal reports the directory non-empty is it
+    /// emptied again, by the bounded walker (which rescans from the start for
+    /// every step), and the removal retried once. The success path costs nothing
+    /// extra.
+    static func removeEmptiedDirectory(
+        _ parentDescriptor: Int32,
+        _ name: UnsafePointer<CChar>,
+        url: URL
+    ) throws {
+        if systemUnlinkAt(
+            parentDescriptor,
+            name,
+            AT_REMOVEDIR
+        ) == 0 {
+            return
+        }
+
+        let code =
+            errno
+
+        guard code == ENOTEMPTY
+                || code == EEXIST
+        else {
+            throw FileSystemError(
+                operation: .remove,
+                url: url,
+                errno: code
+            )
+        }
+
+        let descriptor =
+            systemOpenDirectoryAt(
+                parentDescriptor,
+                name
+            )
+
+        guard descriptor >= 0 else {
+            throw FileSystemError(
+                operation: .remove,
+                url: url,
+                errno: errno
+            )
+        }
+
+        try removeDirectoryContentsBounded(
+            descriptor,
+            url: url
+        )
 
         guard systemUnlinkAt(
             parentDescriptor,
@@ -1796,6 +1887,36 @@ private extension NativeFileSystemMutation {
 
         return pointer[1] == CChar(46)
             && pointer[2] == 0
+    }
+
+    static func isSymbolicLink(
+        _ url: URL
+    ) -> Bool {
+        var info =
+            stat()
+
+        let result: Int32 =
+            url.withUnsafeFileSystemRepresentation {
+                pointer in
+
+                guard let pointer else {
+                    return -1
+                }
+
+                return systemLstat(
+                    pointer,
+                    &info
+                )
+            }
+
+        return result == 0
+            && info.st_mode
+                & mode_t(
+                    S_IFMT
+                )
+                == mode_t(
+                    S_IFLNK
+                )
     }
 
     @inline(__always)
@@ -2266,12 +2387,16 @@ private func systemApplyReplaceMetadata(
         borrowing NativeCapturedExtendedACL,
     currentACLKnownAbsent: Bool
 ) -> Int32 {
-    guard Darwin.chmod(
+    // Every metadata call is non-following: the path was lstat'ed as a regular
+    // file, and a symlink swapped in since then must not redirect the change.
+    guard Darwin.fchmodat(
+        AT_FDCWD,
         pointer,
         info.st_mode
             & mode_t(
                 0o7777
-            )
+            ),
+        AT_SYMLINK_NOFOLLOW
     ) == 0 else {
         return errno
     }
@@ -2306,7 +2431,7 @@ private func systemApplyExtendedACL(
     if let value =
             acl.value
     {
-        guard acl_set_file(
+        guard acl_set_link_np(
             pointer,
             ACL_TYPE_EXTENDED,
             value
@@ -2342,7 +2467,7 @@ private func systemApplyExtendedACL(
         )
     }
 
-    guard acl_set_file(
+    guard acl_set_link_np(
         pointer,
         ACL_TYPE_EXTENDED,
         empty

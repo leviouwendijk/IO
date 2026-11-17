@@ -86,9 +86,12 @@ private extension IOExecutor {
     static func execute<Output: Sendable>(
         _ operation: @escaping @Sendable () throws -> Output
     ) async throws -> Output {
+        // Cancellation is checked only before submission. Once the operation has
+        // run, its result (which may own resources) wins over a late cancellation,
+        // matching `IO.runBlocking`.
         try Task.checkCancellation()
 
-        let result = try await withCheckedThrowingContinuation {
+        return try await withCheckedThrowingContinuation {
             (
                 continuation: CheckedContinuation<Output, Error>
             ) in
@@ -107,10 +110,6 @@ private extension IOExecutor {
                 }
             }
         }
-
-        try Task.checkCancellation()
-
-        return result
     }
 }
 

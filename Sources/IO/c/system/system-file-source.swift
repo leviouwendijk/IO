@@ -1,3 +1,5 @@
+import Foundation
+
 #if canImport(Darwin)
 import Darwin
 #elseif canImport(Glibc)
@@ -7,6 +9,7 @@ import Glibc
 public enum SystemFileSourceError: Error, Sendable, Equatable {
     case open(path: String, code: Int32)
     case cache(path: String, code: Int32)
+    case inspect(path: String, code: Int32)
     case read(path: String, code: Int32)
     case close(path: String, code: Int32)
     case closed(path: String)
@@ -23,12 +26,21 @@ public struct SystemFileSource: SourceBackend, ~Copyable {
 
     private var descriptor: Int32
 
+    /// `openNonblocking` opens with `O_NONBLOCK`: opening a FIFO returns
+    /// immediately instead of waiting for a writer, and its reads report
+    /// `.unavailable` instead of blocking. Regular-file reads are unaffected,
+    /// so a caller that refuses non-regular files after `inspect()` gets that
+    /// guarantee without an extra syscall.
     public init(
         path: String,
-        cachePolicy: FileReadCachePolicy = .system
+        cachePolicy: FileReadCachePolicy = .system,
+        openNonblocking: Bool = false
     ) throws {
         let descriptor = path.withCString { pointer in
-            systemOpenReadOnly(pointer)
+            systemOpenReadOnly(
+                pointer,
+                flags: openNonblocking ? O_NONBLOCK : 0
+            )
         }
 
         guard descriptor >= 0 else {
@@ -65,6 +77,33 @@ public struct SystemFileSource: SourceBackend, ~Copyable {
         }
     }
 
+    /// Metadata of the opened file (`fstat`): exactly the object `refill` reads,
+    /// even if `path` has since been replaced or was a symlink. `url` labels the
+    /// snapshot; it defaults to `path`.
+    public borrowing func inspect(
+        url: URL? = nil
+    ) throws -> FileMetadataSnapshot {
+        guard descriptor >= 0 else {
+            throw SystemFileSourceError.closed(
+                path: path
+            )
+        }
+
+        var info = stat()
+
+        guard fstat(descriptor, &info) == 0 else {
+            throw SystemFileSourceError.inspect(
+                path: path,
+                code: errno
+            )
+        }
+
+        return NativeFileSystem.snapshot(
+            url: url ?? URL(fileURLWithPath: path),
+            info: info
+        )
+    }
+
     public mutating func refill(
         into bytes: UnsafeMutableRawBufferPointer
     ) throws -> SourceRefill {
@@ -98,13 +137,19 @@ public struct SystemFileSource: SourceBackend, ~Copyable {
             return .end
         }
 
-        if errno == EINTR {
+        let code = errno
+
+        if code == EINTR {
             return .retry
+        }
+
+        if code == EAGAIN || code == EWOULDBLOCK {
+            return .unavailable
         }
 
         throw SystemFileSourceError.read(
             path: path,
-            code: errno
+            code: code
         )
     }
 
@@ -127,13 +172,20 @@ public struct SystemFileSource: SourceBackend, ~Copyable {
 
 @inline(__always)
 private func systemOpenReadOnly(
-    _ path: UnsafePointer<CChar>
+    _ path: UnsafePointer<CChar>,
+    flags: Int32
 ) -> Int32 {
-    #if canImport(Darwin)
-    Darwin.open(path, O_RDONLY | O_CLOEXEC)
-    #elseif canImport(Glibc)
-    Glibc.open(path, O_RDONLY | O_CLOEXEC)
-    #endif
+    while true {
+        #if canImport(Darwin)
+        let descriptor = Darwin.open(path, O_RDONLY | O_CLOEXEC | flags)
+        #elseif canImport(Glibc)
+        let descriptor = Glibc.open(path, O_RDONLY | O_CLOEXEC | flags)
+        #endif
+
+        if descriptor >= 0 || errno != EINTR {
+            return descriptor
+        }
+    }
 }
 
 @inline(__always)

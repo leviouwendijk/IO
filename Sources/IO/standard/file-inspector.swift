@@ -12,10 +12,16 @@ public struct FileInspector: Sendable {
         self.fileSystem = fileSystem
     }
 
-    public func inspect() throws -> FileMetadataSnapshot {
+    /// Describes the item at `url`. A final-component symlink is described
+    /// itself unless `followingSymlinks` is true, in which case its target is
+    /// described and a dangling link reports `existed: false`.
+    public func inspect(
+        followingSymlinks: Bool = false
+    ) throws -> FileMetadataSnapshot {
         if case .c = fileSystem.implementation {
             return try NativeFileSystem.inspect(
-                url
+                url,
+                followingSymlinks: followingSymlinks
             )
         }
 
@@ -23,7 +29,9 @@ public struct FileInspector: Sendable {
 
         do {
             attributes = try FileManager.default.attributesOfItem(
-                atPath: url.path
+                atPath: followingSymlinks
+                    ? url.resolvingSymlinksInPath().path
+                    : url.path
             )
         } catch {
             if isMissingFileError(

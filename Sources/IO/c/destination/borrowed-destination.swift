@@ -111,6 +111,17 @@ package struct BorrowedDestination: ~Copyable, ~Escapable {
             state: &state
         )
     }
+
+    package consuming func close() throws {
+        guard try flush() == .complete else {
+            throw DestinationCloseError.unflushed(
+                bufferedByteCount:
+                    buffer.readableCount
+            )
+        }
+
+        try backend.close()
+    }
 }
 
 /// Runs a borrowed Destination over caller-supplied mutable raw storage.

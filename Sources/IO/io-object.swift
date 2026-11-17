@@ -101,7 +101,7 @@ public struct IO: Sendable {
                 ) {
                     error in
 
-                    resume(
+                    Self.resume(
                         continuation,
                         with: error
                     )
@@ -138,7 +138,7 @@ public struct IO: Sendable {
                 ) {
                     error in
 
-                    resume(
+                    Self.resume(
                         continuation,
                         with: error
                     )
@@ -195,7 +195,10 @@ public struct IO: Sendable {
         return value
     }
 
-    private func resume(
+    /// Static so registered completions capture only the continuation, not
+    /// this `IO` (and through it the runtime): a pending wait must not keep
+    /// the runtime alive.
+    private static func resume(
         _ continuation: CheckedContinuation<Void, Error>,
         with error: IOExecutionError?
     ) {

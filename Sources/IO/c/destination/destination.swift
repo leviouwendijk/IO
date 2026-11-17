@@ -291,6 +291,41 @@ public struct Destination: ~Copyable {
         return .complete
     }
 
+    /// Drains staged bytes, throws any failure deferred by an earlier partial
+    /// write, then closes the backend and reports its release error.
+    ///
+    /// Dropping a Destination without closing it discards staged bytes and any
+    /// deferred failure; the backend's own `deinit` releases the endpoint.
+    public consuming func close() throws {
+        guard try flush() == .complete else {
+            throw DestinationCloseError.unflushed(
+                bufferedByteCount:
+                    buffer.readableCount
+            )
+        }
+
+        try backend.close()
+    }
+
+    /// `close()` that waits out endpoint backpressure through `io` before
+    /// closing.
+    public consuming func close(
+        io: IO,
+        deadline: IODeadline? = nil
+    ) async throws {
+        guard try await flush(
+            io: io,
+            deadline: deadline
+        ) == .complete else {
+            throw DestinationCloseError.unflushed(
+                bufferedByteCount:
+                    buffer.readableCount
+            )
+        }
+
+        try backend.close()
+    }
+
     /// Drives buffered Destination bytes to the backend, suspending only when the
     /// synchronous flush reports endpoint backpressure.
     public mutating func flush(

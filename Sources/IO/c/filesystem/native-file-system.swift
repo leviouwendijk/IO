@@ -22,13 +22,26 @@ enum NativeFileSystem {
         } == 0
     }
 
-    static func inspect(_ input: URL) throws -> FileMetadataSnapshot {
+    /// `followingSymlinks: false` describes a final-component symlink itself
+    /// (`lstat`); `true` describes what it points to (`stat`), and reports a
+    /// dangling link as nonexistent.
+    static func inspect(
+        _ input: URL,
+        followingSymlinks: Bool = false
+    ) throws -> FileMetadataSnapshot {
         let url = input.standardizedFileURL
         var info = stat()
+        var code: Int32 = 0
 
-        guard url.path.withCString({ lstat($0, &info) }) == 0 else {
-            let code = errno
+        let result = url.path.withCString {
+            let result = followingSymlinks
+                ? stat($0, &info)
+                : lstat($0, &info)
+            code = errno
+            return result
+        }
 
+        guard result == 0 else {
             if code == ENOENT || code == ENOTDIR {
                 return .init(
                     url: url,
@@ -47,7 +60,17 @@ enum NativeFileSystem {
             )
         }
 
-        return .init(
+        return snapshot(
+            url: url,
+            info: info
+        )
+    }
+
+    static func snapshot(
+        url: URL,
+        info: stat
+    ) -> FileMetadataSnapshot {
+        .init(
             url: url,
             existed: true,
             byteCount: Int(info.st_size),
@@ -266,11 +289,18 @@ enum NativeFileSystem {
     static func isEmpty(_ input: URL) throws -> Bool {
         let url = input.standardizedFileURL
 
-        guard let directory = url.path.withCString({ opendir($0) }) else {
+        // errno is captured inside the closure: withCString may free a bridged
+        // temporary after opendir returns, and free may change errno.
+        var openCode: Int32 = 0
+        guard let directory = url.path.withCString({
+            let directory = opendir($0)
+            openCode = errno
+            return directory
+        }) else {
             throw FileSystemError(
                 operation: .probe_directory_empty,
                 url: url,
-                errno: errno
+                errno: openCode
             )
         }
 

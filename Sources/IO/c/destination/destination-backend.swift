@@ -8,6 +8,12 @@ public enum DestinationFlush: Sendable, Equatable {
     case unavailable
 }
 
+public enum DestinationCloseError: Error, Sendable, Equatable {
+    /// The endpoint applied backpressure before staged bytes could be drained.
+    /// The backend was not closed; its `deinit` releases it.
+    case unflushed(bufferedByteCount: Int)
+}
+
 /// Copyable diagnostic snapshot produced by a Destination backend on explicit request.
 public struct DestinationBackendInspection: Sendable, Equatable {
     public let capturedBytes: [UInt8]?
@@ -45,6 +51,11 @@ public protocol DestinationBackend:
     /// Separate from `flush()`, which is logical only.
     mutating func synchronize() throws
 
+    /// Releases the endpoint and reports failures that surface only at release
+    /// (for example delayed write errors from `close(2)`). Called once by
+    /// `Destination.close()`; owners still release in `deinit` when it is not.
+    mutating func close() throws
+
     /// Produces a detached, copyable observation of backend state for diagnostics/tests.
     mutating func inspect() -> DestinationBackendInspection
 }
@@ -68,6 +79,9 @@ public extension DestinationBackend where Self: ~Copyable {
     }
 
     mutating func synchronize() throws {
+    }
+
+    mutating func close() throws {
     }
 
     mutating func inspect() -> DestinationBackendInspection {
