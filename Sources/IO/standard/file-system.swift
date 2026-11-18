@@ -60,6 +60,27 @@ public struct FileSystem: Sendable {
         }
     }
 
+    /// Whether `url` is a regular file this process may execute, following
+    /// symlinks: a dangling link, a directory or a file without execute
+    /// permission is not.
+    public func isExecutable(
+        _ url: URL
+    ) -> Bool {
+        switch implementation {
+        case .foundation:
+            var isDirectory: ObjCBool = false
+            let path = url.standardizedFileURL.path
+            return FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory)
+                && !isDirectory.boolValue
+                && FileManager.default.isExecutableFile(atPath: path)
+
+        case .c:
+            return NativeFileSystem.isExecutable(
+                url
+            )
+        }
+    }
+
     public func copy(
         _ source: URL,
         to destination: URL

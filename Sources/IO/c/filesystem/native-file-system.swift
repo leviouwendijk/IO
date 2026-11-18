@@ -22,6 +22,17 @@ enum NativeFileSystem {
         } == 0
     }
 
+    /// A regular file (after following symlinks) that `access(X_OK)` allows.
+    static func isExecutable(_ url: URL) -> Bool {
+        url.standardizedFileURL.path.withCString { path in
+            var info = stat()
+            guard stat(path, &info) == 0,
+                  (info.st_mode & S_IFMT) == S_IFREG
+            else { return false }
+            return access(path, X_OK) == 0
+        }
+    }
+
     /// `followingSymlinks: false` describes a final-component symlink itself
     /// (`lstat`); `true` describes what it points to (`stat`), and reports a
     /// dangling link as nonexistent.

@@ -261,6 +261,33 @@ extension TestIO {
                 "missing path must not exist"
             )
 
+            for candidate in [FileSystem.default, FileSystem.foundation] {
+                try expect(
+                    !candidate.isExecutable(fixture.regularFile),
+                    "a plain file is not executable"
+                )
+                try expect(
+                    !candidate.isExecutable(fixture.missing),
+                    "a missing path is not executable"
+                )
+                try expect(
+                    !candidate.isExecutable(fixture.regularFile.deletingLastPathComponent()),
+                    "a directory is not executable"
+                )
+            }
+            _ = fixture.regularFile.path.withCString { chmod($0, 0o755) }
+            for candidate in [FileSystem.default, FileSystem.foundation] {
+                try expect(
+                    candidate.isExecutable(fixture.regularFile),
+                    "a file with execute permission is executable"
+                )
+                try expect(
+                    candidate.isExecutable(fixture.fileSymlink),
+                    "a symlink to it is followed"
+                )
+            }
+            _ = fixture.regularFile.path.withCString { chmod($0, 0o644) }
+
             try expectEqual(
                 fileSystem.resolve(
                     fixture.fileSymlink
