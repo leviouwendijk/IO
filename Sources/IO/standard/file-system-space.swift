@@ -11,18 +11,18 @@ import Glibc
 public extension FileSystem {
     struct Volume: Sendable, Equatable {
         /// Bytes available to an unprivileged process (`f_bavail × f_bsize`).
-        public let availableBytes: Int64
-        public let totalBytes: Int64
+        public let available: Int64
+        public let total: Int64
 
-        public init(availableBytes: Int64, totalBytes: Int64) {
-            self.availableBytes = availableBytes
-            self.totalBytes = totalBytes
+        public init(available: Int64, total: Int64) {
+            self.available = available
+            self.total = total
         }
     }
 
     /// The volume holding `url`: one `statfs`.
     func volume(
-        containing url: URL
+        of url: URL
     ) throws -> Volume {
         let url = url.standardizedFileURL
         var info = statfs()
@@ -31,8 +31,8 @@ public extension FileSystem {
         }
         let blockSize = Int64(info.f_bsize)
         return .init(
-            availableBytes: Int64(clamping: info.f_bavail) * blockSize,
-            totalBytes: Int64(clamping: info.f_blocks) * blockSize
+            available: Int64(clamping: info.f_bavail) * blockSize,
+            total: Int64(clamping: info.f_blocks) * blockSize
         )
     }
 
@@ -40,7 +40,7 @@ public extension FileSystem {
     /// each hard-linked inode once. One physical `fts` walk: symbolic links are counted, not
     /// followed, and mount points below `url` are not crossed. Entries that vanish or can't be
     /// read during the walk are skipped; a missing `url` throws.
-    func allocatedSize(
+    func size(
         of url: URL
     ) throws -> Int64 {
         let url = url.standardizedFileURL
