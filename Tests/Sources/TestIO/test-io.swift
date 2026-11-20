@@ -231,6 +231,7 @@ package enum TestIO {
         .init(name: "filesystem-mutation-failure-postconditions", body: testFileSystemMutationFailurePostconditions),
         .init(name: "filesystem-resolution-reference-equivalence", body: testFileSystemResolutionReferenceEquivalence),
         .init(name: "filesystem-resolution-readlink-dispatch-equivalence", body: testReadlinkDispatchResolutionCandidate),
+        .init(name: "filesystem-space-volume-and-allocated-size", body: testFileSystemSpace),
         ]
     }
 
