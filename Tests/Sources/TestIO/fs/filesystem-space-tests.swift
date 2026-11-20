@@ -37,6 +37,12 @@ extension TestIO {
             "a single file sizes the same through either link"
         )
 
+        try expectEqual(
+            try FileSystem.cwd().standardizedFileURL.path,
+            URL(fileURLWithPath: FileManager.default.currentDirectoryPath).standardizedFileURL.path,
+            "cwd is getcwd"
+        )
+
         do {
             _ = try FileSystem.default.allocatedSize(of: root.appendingPathComponent("missing"))
             throw TestFailure(message: "allocated size of a missing path must fail")
