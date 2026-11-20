@@ -1,5 +1,5 @@
 .DS_Store
-/.build
+.build/
 /Packages
 xcuserdata/
 DerivedData/
@@ -20,3 +20,5 @@ DerivedData/
 compiled.pkl
 /compiled.pkl
 **/compiled.pkl
+**/.testflows/*
+!**/.testflows/snapshots/
