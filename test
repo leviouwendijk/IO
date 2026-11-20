@@ -4,22 +4,22 @@ function general_test_suite() {
     local testbins=("$@")
 
     for testbin in "${testbins[@]}"; do
-        swift run "$testbin"
+        swift run --package-path Tests "$testbin"
     done
 }
 
 function targeted_test_suite() {
-    # swift run -c release tio_fs --filesystem-enumeration-decompose-heavy;
-    # swift run -c release tio_fs --filesystem-compare-heavy;
+    # swift run --package-path Tests -c release tio_fs --filesystem-enumeration-decompose-heavy;
+    # swift run --package-path Tests -c release tio_fs --filesystem-compare-heavy;
 
-    # swift run -c release tio_fs --filesystem-mutation-compare-heavy
-    # swift run -c release tio_fs --filesystem-resolve-characterize
+    # swift run --package-path Tests -c release tio_fs --filesystem-mutation-compare-heavy
+    # swift run --package-path Tests -c release tio_fs --filesystem-resolve-characterize
 
-    # swift run -c release tio_fs --filesystem-mutation-compare-heavy
-    # swift run -c release tio_fs --filesystem-mutation-create-decompose-heavy
+    # swift run --package-path Tests -c release tio_fs --filesystem-mutation-compare-heavy
+    # swift run --package-path Tests -c release tio_fs --filesystem-mutation-create-decompose-heavy
 
-    swift run -c release tio_fs --filesystem-mutation-compare-heavy
-    swift run -c release tio_fs --filesystem-mutation-create-strategy-heavy
+    swift run --package-path Tests -c release tio_fs --filesystem-mutation-compare-heavy
+    swift run --package-path Tests -c release tio_fs --filesystem-mutation-create-strategy-heavy
 }
 
 (
