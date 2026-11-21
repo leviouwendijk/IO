@@ -147,6 +147,31 @@ extension TestIO {
             "exFAT directory move carries its children"
         )
 
+        // exFAT is case-insensitive: a case-only rename finds the source under
+        // its other spelling, which is the same object, not a collision.
+        let mixedCase = mountPoint.appendingPathComponent(
+            "Photo.JPG"
+        )
+        let lowerCase = mountPoint.appendingPathComponent(
+            "photo.jpg"
+        )
+        try Data("photo".utf8).write(
+            to: mixedCase
+        )
+        try FileSystem.c.move(
+            mixedCase,
+            to: lowerCase
+        )
+        let names = try FileManager.default.contentsOfDirectory(
+            atPath: mountPoint.path
+        )
+        try expect(
+            names.contains(
+                "photo.jpg"
+            ),
+            "exFAT case-only move takes the new spelling"
+        )
+
         do {
             try FileSystem.c.move(
                 destination,

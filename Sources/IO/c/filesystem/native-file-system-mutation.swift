@@ -2544,21 +2544,7 @@ private func systemRenameNoReplace(
         return result
     }
 
-    var destinationInfo = stat()
-
-    if Darwin.lstat(
-        destination,
-        &destinationInfo
-    ) == 0 {
-        errno = EEXIST
-        return -1
-    }
-
-    guard errno == ENOENT else {
-        return -1
-    }
-
-    return Darwin.rename(
+    return systemRenameNoReplaceFallback(
         source,
         destination
     )
@@ -2585,23 +2571,63 @@ private func systemRenameNoReplace(
         }
     }
 
+    return systemRenameNoReplaceFallback(
+        source,
+        destination
+    )
+    #endif
+}
+
+/// The no-replace fallback for volumes without an atomic no-replace rename:
+/// `lstat` the destination, `rename` when it is absent.
+///
+/// A destination that resolves to the source itself is not a collision: on a
+/// case-insensitive volume (exFAT, FAT) `photo.JPG` → `photo.jpg` finds the
+/// source under its other spelling. APFS's `RENAME_EXCL` permits that rename,
+/// so the fallback does too. Two hard links to one file are a real collision
+/// (`rename` between them is a no-op that leaves both), hence the link count;
+/// directories cannot be hard-linked, and their link count counts children.
+/// Cost: one more `lstat`, on the collision path only.
+@inline(__always)
+private func systemRenameNoReplaceFallback(
+    _ source:
+        UnsafePointer<CChar>,
+    _ destination:
+        UnsafePointer<CChar>
+) -> Int32 {
     var destinationInfo = stat()
 
-    if Glibc.lstat(
+    if lstat(
         destination,
         &destinationInfo
     ) == 0 {
-        errno = EEXIST
-        return -1
+        var sourceInfo = stat()
+
+        guard lstat(
+            source,
+            &sourceInfo
+        ) == 0,
+              sourceInfo.st_dev == destinationInfo.st_dev,
+              sourceInfo.st_ino == destinationInfo.st_ino,
+              sourceInfo.st_nlink == 1
+                || sourceInfo.st_mode & S_IFMT == S_IFDIR
+        else {
+            errno = EEXIST
+            return -1
+        }
+
+        return rename(
+            source,
+            destination
+        )
     }
 
     guard errno == ENOENT else {
         return -1
     }
 
-    return Glibc.rename(
+    return rename(
         source,
         destination
     )
-    #endif
 }
