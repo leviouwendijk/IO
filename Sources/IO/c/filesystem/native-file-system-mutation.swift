@@ -204,6 +204,52 @@ enum NativeFileSystemMutation {
         )
     }
 
+    /// A move to another volume: IO's copy, then removal of the source.
+    /// Runs only after `rename` reported `EXDEV`.
+    ///
+    /// Failure contract, matching `copy`:
+    /// - `FileSystemError(.copy)`: nothing was written; the source is intact.
+    /// - `FileSystemError(.move)`: the copy landed but the source could not be
+    ///   removed (a file's `unlink` is atomic), so the copy was removed again;
+    ///   the source is intact.
+    /// - `FileSystemError(.remove)`: the source directory was partly removed,
+    ///   or the copy could not be cleaned up. Both names may hold data; the
+    ///   caller must treat the state as uncertain.
+    static func moveAcrossVolumes(
+        _ source: URL,
+        to destination: URL
+    ) throws {
+        let isDirectory = source.withUnsafeFileSystemRepresentation { pointer -> Bool in
+            var info = stat()
+            guard let pointer, systemLstat(pointer, &info) == 0 else {
+                return false
+            }
+            return info.st_mode & S_IFMT == S_IFDIR
+        }
+
+        try copy(
+            source,
+            to: destination
+        )
+
+        do {
+            try remove(
+                source
+            )
+        } catch let failure as FileSystemError where !isDirectory {
+            // The source file is untouched: undo the copy so only one name
+            // holds the data. If that fails too, report the removal.
+            try remove(
+                destination
+            )
+            throw FileSystemError(
+                operation: .move,
+                url: source,
+                errno: failure.errno
+            )
+        }
+    }
+
     static func remove(
         _ input: URL
     ) throws {
@@ -342,8 +388,8 @@ enum NativeFileSystemMutation {
                         errno
 
                     if code == EXDEV {
-                        try FileManager.default.moveItem(
-                            at: source,
+                        try moveAcrossVolumes(
+                            source,
                             to: destination
                         )
                         return
@@ -1391,6 +1437,13 @@ private extension NativeFileSystemMutation {
                 let unlinkCode =
                     errno
 
+                // Already gone: removing an entry on an AppleDouble volume
+                // (exFAT, FAT, SMB) also removes its `._name` sidecar, which
+                // readdir may still list. Removal wants it gone; it is.
+                if unlinkCode == ENOENT {
+                    return
+                }
+
                 guard unlinkCode == EISDIR
                         || unlinkCode == EPERM
                 else {
@@ -1434,6 +1487,11 @@ private extension NativeFileSystemMutation {
         guard childDescriptor >= 0 else {
             let openCode =
                 errno
+
+            // Removed since readdir listed it (see the sidecar note above).
+            if openCode == ENOENT {
+                return
+            }
 
             if openCode == ENOTDIR
                 || openCode == ELOOP
@@ -1968,6 +2026,19 @@ private extension NativeFileSystemMutation {
                 pointer
             ) {
                 return input.standardizedFileURL
+            }
+
+            // A directory-form URL renders with a trailing slash. FSKit
+            // volumes (exFAT, FAT) answer `unlink("dir/")` with ENOENT and
+            // `rmdir("dir/")` with ENOTEMPTY, so mutations use the plain
+            // path. No syscall; one URL, only for directory-form inputs.
+            if input.hasDirectoryPath,
+               input.path != "/"
+            {
+                return URL(
+                    fileURLWithPath: input.path,
+                    isDirectory: false
+                )
             }
 
             return input

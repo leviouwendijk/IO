@@ -228,6 +228,7 @@ package enum TestIO {
         .init(name: "filesystem-mutation-copy-equivalence", body: testFileSystemMutationCopyEquivalence),
         .init(name: "filesystem-mutation-move-equivalence", body: testFileSystemMutationMoveEquivalence),
         .init(name: "filesystem-move-non-native-volume", body: testMoveOnNonNativeVolume),
+        .init(name: "filesystem-move-across-volumes", body: testMoveAcrossVolumes),
         .init(name: "filesystem-mutation-replace-equivalence", body: testFileSystemMutationReplaceEquivalence),
         .init(name: "filesystem-mutation-replace-acl-equivalence", body: testFileSystemMutationReplaceACLEquivalence),
         .init(name: "filesystem-mutation-failure-postconditions", body: testFileSystemMutationFailurePostconditions),
