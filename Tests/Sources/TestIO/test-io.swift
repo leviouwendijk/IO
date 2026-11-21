@@ -221,6 +221,7 @@ package enum TestIO {
         .init(name: "filesystem-native-path-substrate", body: testNativePathSubstrate),
         .init(name: "filesystem-c-directory-inspector-strategy", body: testCDirectoryInspectorStrategy),
         .init(name: "filesystem-error-model", body: testFileSystemErrorModel),
+        .init(name: "filesystem-error-semantics", body: testFileSystemErrorSemantics),
         .init(name: "filesystem-mutation-create-remove-equivalence", body: testFileSystemMutationCreateRemoveEquivalence),
         .init(name: "filesystem-native-simple-mutation-error-model", body: testNativeSimpleMutationErrorModel),
         .init(name: "filesystem-native-simple-mutation-lexical-standardization", body: testNativeSimpleMutationLexicalStandardization),

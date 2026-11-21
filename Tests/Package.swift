@@ -73,6 +73,7 @@ let package = Package(
     ],
     dependencies: [
         .package(path: ".."),
+        .package(url: "https://github.com/leviouwendijk/Errors.git", branch: "master"),
     ],
     targets: [
 
@@ -81,6 +82,7 @@ let package = Package(
             name: "TestIO",
             dependencies: [
                 .product(name: "IO", package: "IO"),
+                .product(name: "Errors", package: "Errors"),
             ]
         ),
         .executableTarget(

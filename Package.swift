@@ -20,6 +20,10 @@ let package = Package(
             url: "https://github.com/leviouwendijk/Atomos.git",
             branch: "master"
         ),
+        .package(
+            url: "https://github.com/leviouwendijk/Errors.git",
+            branch: "master"
+        ),
     ],
     targets: [
         .target(
@@ -28,6 +32,10 @@ let package = Package(
                 .product(
                     name: "Atomos",
                     package: "Atomos"
+                ),
+                .product(
+                    name: "Errors",
+                    package: "Errors"
                 ),
             ],
             swiftSettings: [
