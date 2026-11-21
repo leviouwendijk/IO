@@ -15,6 +15,25 @@ public enum SystemFileSourceError: Error, Sendable, Equatable {
     case closed(path: String)
 }
 
+public extension SystemFileSourceError {
+    /// The same failure as a `FileSystemError`, for callers that report
+    /// filesystem errors one way. nil for `.closed`, which has no errno.
+    var fileSystemError: FileSystemError? {
+        switch self {
+        case .open(let path, let code), .cache(let path, let code):
+            return .init(operation: .open, url: URL(fileURLWithPath: path), errno: code)
+        case .inspect(let path, let code):
+            return .init(operation: .inspect, url: URL(fileURLWithPath: path), errno: code)
+        case .read(let path, let code):
+            return .init(operation: .read, url: URL(fileURLWithPath: path), errno: code)
+        case .close(let path, let code):
+            return .init(operation: .close, url: URL(fileURLWithPath: path), errno: code)
+        case .closed:
+            return nil
+        }
+    }
+}
+
 /// Uniquely-owned synchronous POSIX file backend.
 ///
 /// The descriptor is stored in a noncopyable value so ownership transfer into `Source`

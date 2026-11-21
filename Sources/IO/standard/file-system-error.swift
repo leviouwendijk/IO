@@ -19,6 +19,9 @@ public struct FileSystemError:
         Codable
     {
         case inspect
+        case open
+        case read
+        case close
         case enumerate_directory
         case inspect_directory_entry
         case probe_directory_empty
