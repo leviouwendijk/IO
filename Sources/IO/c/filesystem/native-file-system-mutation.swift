@@ -126,10 +126,33 @@ enum NativeFileSystemMutation {
         }
         #endif
 
-        try FileManager.default.copyItem(
-            at: sourceInput.standardizedFileURL,
-            to: destinationInput.standardizedFileURL
-        )
+        // Copy never replaces, so whatever is at the destination after a
+        // failed fallback was created by it: remove it, so a thrown copy error
+        // always means no destination. A failed removal is thrown instead.
+        let destination = destinationInput.standardizedFileURL
+        do {
+            try FileManager.default.copyItem(
+                at: sourceInput.standardizedFileURL,
+                to: destination
+            )
+        } catch {
+            let failure = FileSystemError.wrapping(
+                error,
+                operation: .copy,
+                url: destination
+            )
+            var info = stat()
+            if failure?.reason != .already_exists,
+               destination.withUnsafeFileSystemRepresentation({
+                   $0.map { systemLstat($0, &info) == 0 } ?? false
+               })
+            {
+                try remove(
+                    destination
+                )
+            }
+            throw failure ?? error
+        }
     }
 
     /// `followingSymlinks`: when the original is a symlink, replace the file it
@@ -394,11 +417,14 @@ private extension NativeFileSystemMutation {
 
                     // clonefile never replaces. An occupied destination is
                     // final; the Foundation fallback would only fail again,
-                    // slower and with a Cocoa error. Unsupported volumes
+                    // slower and with a Cocoa error. So is a full volume or
+                    // a file the volume cannot hold. Unsupported volumes
                     // (ENOTSUP, EXDEV, ...) keep the fallback.
                     let code = errno
 
-                    guard code != EEXIST else {
+                    guard code != EEXIST,
+                          !FileSystemError.isCapacity(code)
+                    else {
                         throw FileSystemError(
                             operation: .copy,
                             url: destination,
@@ -524,6 +550,14 @@ private extension NativeFileSystemMutation {
                 )
             } catch {
                 throw error
+            }
+
+            // Out of space or past the volume's file size: Foundation would
+            // fail the same way, after writing as much again.
+            if let failure = error as? FileSystemError,
+               FileSystemError.isCapacity(failure.errno)
+            {
+                throw failure
             }
 
             return false

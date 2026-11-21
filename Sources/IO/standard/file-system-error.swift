@@ -49,6 +49,7 @@ public struct FileSystemError:
         case cross_device
         case read_only_file_system
         case no_space
+        case file_too_large
         case busy
         case is_directory
         case unknown
@@ -79,6 +80,15 @@ public struct FileSystemError:
 }
 
 extension FileSystemError {
+    /// The destination volume cannot take the data: out of space or quota, or
+    /// the file is larger than the volume allows. Retrying elsewhere in the
+    /// same call fails the same way.
+    static func isCapacity(
+        _ code: Int32
+    ) -> Bool {
+        code == ENOSPC || code == EDQUOT || code == EFBIG
+    }
+
     static func wrapping(
         _ error: Error,
         operation: Operation,
@@ -133,8 +143,10 @@ private extension FileSystemError {
             return .cross_device
         case EROFS:
             return .read_only_file_system
-        case ENOSPC:
+        case ENOSPC, EDQUOT:
             return .no_space
+        case EFBIG:
+            return .file_too_large
         case EBUSY:
             return .busy
         case EISDIR:
@@ -176,6 +188,12 @@ private extension FileSystemError {
         case CocoaError.Code.fileReadNoPermission.rawValue,
              CocoaError.Code.fileWriteNoPermission.rawValue:
             return EACCES
+
+        case CocoaError.Code.fileWriteOutOfSpace.rawValue:
+            return ENOSPC
+
+        case CocoaError.Code.fileWriteVolumeReadOnly.rawValue:
+            return EROFS
 
         default:
             return nil
