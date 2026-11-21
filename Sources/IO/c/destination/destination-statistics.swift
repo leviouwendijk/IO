@@ -9,7 +9,7 @@ public struct DestinationStatistics: Sendable, Equatable {
     /// Number of backend flush calls issued by `Destination.flush()`.
     public let flushCallCount: UInt64
 
-    package init(
+    @_spi(Testing) public init(
         drainCallCount: UInt64,
         drainedByteCount: UInt64,
         flushCallCount: UInt64

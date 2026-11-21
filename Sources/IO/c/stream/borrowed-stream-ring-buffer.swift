@@ -8,12 +8,12 @@
 /// Construction is intentionally file-scoped. Callers enter through
 /// `withBorrowedStreamRingBuffer`, which forms the unsafe raw view only for the
 /// duration of the closure.
-package struct BorrowedStreamRingBuffer: ~Copyable, ~Escapable {
+@_spi(Testing) public struct BorrowedStreamRingBuffer: ~Copyable, ~Escapable {
     private let storage: UnsafeMutableRawBufferPointer
     private var state: StreamRingState
 
     @_lifetime(borrow storage)
-    package init(
+    @_spi(Testing) public init(
         storage: borrowing UnsafeMutableRawBufferPointer
     ) {
         let storageCount =
@@ -32,27 +32,27 @@ package struct BorrowedStreamRingBuffer: ~Copyable, ~Escapable {
             )
     }
 
-    package var capacity: Int {
+    @_spi(Testing) public var capacity: Int {
         state.capacity
     }
 
-    package var readableCount: Int {
+    @_spi(Testing) public var readableCount: Int {
         state.readableCount
     }
 
-    package var writableCount: Int {
+    @_spi(Testing) public var writableCount: Int {
         state.writableCount
     }
 
-    package var isEmpty: Bool {
+    @_spi(Testing) public var isEmpty: Bool {
         state.isEmpty
     }
 
-    package var isFull: Bool {
+    @_spi(Testing) public var isFull: Bool {
         state.isFull
     }
 
-    package func withReadableRegions<Result>(
+    @_spi(Testing) public func withReadableRegions<Result>(
         _ body: (
             UnsafeRawBufferPointer,
             UnsafeRawBufferPointer
@@ -93,7 +93,7 @@ package struct BorrowedStreamRingBuffer: ~Copyable, ~Escapable {
     }
 
     @_lifetime(self: copy self)
-    package mutating func withWritableRegions<Result>(
+    @_spi(Testing) public mutating func withWritableRegions<Result>(
         _ body: (
             UnsafeMutableRawBufferPointer,
             UnsafeMutableRawBufferPointer
@@ -134,7 +134,7 @@ package struct BorrowedStreamRingBuffer: ~Copyable, ~Escapable {
     }
 
     @_lifetime(self: copy self)
-    package mutating func didWrite(
+    @_spi(Testing) public mutating func didWrite(
         _ count: Int
     ) {
         state.didWrite(
@@ -143,7 +143,7 @@ package struct BorrowedStreamRingBuffer: ~Copyable, ~Escapable {
     }
 
     @_lifetime(self: copy self)
-    package mutating func consume(
+    @_spi(Testing) public mutating func consume(
         _ count: Int
     ) {
         state.consume(
@@ -152,7 +152,7 @@ package struct BorrowedStreamRingBuffer: ~Copyable, ~Escapable {
     }
 
     @_lifetime(self: copy self)
-    package mutating func append(
+    @_spi(Testing) public mutating func append(
         _ byte: UInt8
     ) -> Bool {
         guard state.writableCount > 0 else {
@@ -169,7 +169,7 @@ package struct BorrowedStreamRingBuffer: ~Copyable, ~Escapable {
     }
 
     @_lifetime(self: copy self)
-    package mutating func append(
+    @_spi(Testing) public mutating func append(
         _ bytes: UnsafeRawBufferPointer
     ) -> Int {
         let accepted =
@@ -242,7 +242,7 @@ package struct BorrowedStreamRingBuffer: ~Copyable, ~Escapable {
 /// The raw storage view exists only for this call. Because the ring is
 /// `~Escapable`, it can be passed through nested calls inside `body` but cannot
 /// be returned from this function or stored beyond the borrow.
-package func withBorrowedStreamRingBuffer<Result>(
+@_spi(Testing) public func withBorrowedStreamRingBuffer<Result>(
     storage: inout [UInt8],
     _ body: (
         inout BorrowedStreamRingBuffer
@@ -269,7 +269,7 @@ package func withBorrowedStreamRingBuffer<Result>(
 /// `withUnsafeTemporaryAllocation`, then pass its raw buffer here. The ring is
 /// `~Escapable`, so it may be passed through nested calls inside `body` but
 /// cannot escape this call.
-package func withBorrowedStreamRingBuffer<Result>(
+@_spi(Testing) public func withBorrowedStreamRingBuffer<Result>(
     storage: borrowing UnsafeMutableRawBufferPointer,
     _ body: (
         inout BorrowedStreamRingBuffer

@@ -1,4 +1,4 @@
-import IO
+@_spi(Testing) import IO
 import Foundation
 
 extension TestIO {
@@ -13,7 +13,7 @@ extension TestIO {
         try expectTypechecks(
             name: "positive-borrow-control",
             source: """
-            import IO
+            @_spi(Testing) import IO
 
             func inspect(
                 _ source: borrowing Source,
@@ -31,7 +31,7 @@ extension TestIO {
         try expectTypechecks(
             name: "positive-borrowed-lifetime-control",
             source: """
-            import IO
+            @_spi(Testing) import IO
 
             func inspect(
                 _ ring: borrowing BorrowedStreamRingBuffer,
@@ -51,7 +51,7 @@ extension TestIO {
         try expectTypechecks(
             name: "positive-span-view-control",
             source: """
-            import IO
+            @_spi(Testing) import IO
 
             func inspect(
                 _ source: borrowing Source,
@@ -72,7 +72,7 @@ extension TestIO {
         try expectTypecheckFailure(
             name: "Source-withBytes-span-cannot-escape",
             source: """
-            import IO
+            @_spi(Testing) import IO
 
             func probe(
                 _ source: borrowing Source
@@ -87,7 +87,7 @@ extension TestIO {
         try expectTypecheckFailure(
             name: "ByteLineFragment-cannot-live-in-escapable-wrapper",
             source: """
-            import IO
+            @_spi(Testing) import IO
 
             struct InvalidWrapper {
                 var fragment: ByteLineFragment
@@ -109,7 +109,7 @@ extension TestIO {
             try expectTypecheckFailure(
                 name: "\(typeName)-is-not-copyable",
                 source: """
-                import IO
+                @_spi(Testing) import IO
 
                 func requiresCopyable<T: Copyable>(
                     _ value: T
@@ -128,7 +128,7 @@ extension TestIO {
         try expectTypecheckFailure(
             name: "Source-cannot-live-in-copyable-wrapper",
             source: """
-            import IO
+            @_spi(Testing) import IO
 
             struct InvalidWrapper: Copyable {
                 var source: Source
@@ -140,7 +140,7 @@ extension TestIO {
         try expectTypecheckFailure(
             name: "BorrowedStreamRingBuffer-cannot-escape-temporary-storage",
             source: """
-            import IO
+            @_spi(Testing) import IO
 
             func probe() {
                 let ring =
@@ -170,7 +170,7 @@ extension TestIO {
         try expectTypecheckFailure(
             name: "BorrowedDestination-cannot-live-in-escapable-wrapper",
             source: """
-            import IO
+            @_spi(Testing) import IO
 
             struct InvalidWrapper: ~Copyable {
                 var destination: BorrowedDestination
@@ -182,7 +182,7 @@ extension TestIO {
         try expectTypecheckFailure(
             name: "BorrowedSource-cannot-live-in-escapable-wrapper",
             source: """
-            import IO
+            @_spi(Testing) import IO
 
             struct InvalidWrapper: ~Copyable {
                 var source: BorrowedSource
@@ -197,20 +197,23 @@ extension TestIO {
             fileURLWithPath: CommandLine.arguments[0]
         ).standardizedFileURL
 
-        let modules = executable
-            .deletingLastPathComponent()
-            .appendingPathComponent(
-                "Modules",
-                isDirectory: true
-            )
+        // SwiftPM's native build puts modules in a sibling `Modules`
+        // directory; the swift-build layout puts them beside the executable.
+        let directory = executable.deletingLastPathComponent()
+        let candidates = [
+            directory.appendingPathComponent("Modules", isDirectory: true),
+            directory,
+        ]
 
-        guard FileManager.default.fileExists(
-            atPath: modules.path
-        ) else {
+        guard let modules = candidates.first(where: {
+            FileManager.default.fileExists(
+                atPath: $0.appendingPathComponent("IO.swiftmodule").path
+            )
+        }) else {
             throw TestFailure(
                 message:
-                    "could not locate sibling SwiftPM Modules directory at "
-                    + modules.path
+                    "could not locate IO.swiftmodule in "
+                    + candidates.map(\.path).joined(separator: " or ")
             )
         }
 

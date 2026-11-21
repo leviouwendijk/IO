@@ -1,4 +1,4 @@
-import IO
+@_spi(Testing) import IO
 import Foundation
 
 extension TestIO {

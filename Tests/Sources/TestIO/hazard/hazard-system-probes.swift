@@ -1,7 +1,7 @@
 #if canImport(Darwin)
 import Darwin
 import Foundation
-import IO
+@_spi(Testing) import IO
 
 /// Process-state and filesystem probes: audit finding #11 plus the
 /// filesystem items (descriptor-depth removal, replace permission window).

@@ -1,7 +1,7 @@
 #if canImport(Darwin)
 import Darwin
 import Foundation
-import IO
+@_spi(Testing) import IO
 
 /// Stream-layer probes: audit findings #1, #2, #3b, #7a, #10.
 enum HZStreamProbes {

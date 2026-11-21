@@ -3,7 +3,7 @@
 /// The protocol is nonescapable-capable so the same algorithm can operate over
 /// both ordinary owned `StreamRingBuffer` storage and lifetime-bound
 /// `BorrowedStreamRingBuffer` storage.
-package protocol DestinationRingStorage: ~Copyable, ~Escapable {
+@_spi(Testing) public protocol DestinationRingStorage: ~Copyable, ~Escapable {
     var capacity: Int { get }
     var readableCount: Int { get }
     var writableCount: Int { get }

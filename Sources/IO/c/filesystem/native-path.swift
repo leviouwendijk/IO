@@ -4,11 +4,11 @@ import Foundation
 ///
 /// The stored representation is the exact NUL-terminated byte sequence used at
 /// the POSIX boundary. No lexical normalization or URL parsing occurs here.
-package struct NativePath: Sendable, Hashable {
-    package struct Component: Sendable, Hashable {
+@_spi(Testing) public struct NativePath: Sendable, Hashable {
+    @_spi(Testing) public struct Component: Sendable, Hashable {
         fileprivate let storage: [UInt8]
 
-        package init?(
+        @_spi(Testing) public init?(
             fileSystemBytes: [UInt8]
         ) {
             guard !fileSystemBytes.isEmpty,
@@ -21,7 +21,7 @@ package struct NativePath: Sendable, Hashable {
             self.storage = fileSystemBytes
         }
 
-        package var fileSystemBytes: [UInt8] {
+        @_spi(Testing) public var fileSystemBytes: [UInt8] {
             storage
         }
     }
@@ -29,7 +29,7 @@ package struct NativePath: Sendable, Hashable {
     /// NUL-terminated filesystem representation.
     private let storage: [UInt8]
 
-    package init?(
+    @_spi(Testing) public init?(
         fileSystemBytes: [UInt8]
     ) {
         guard !fileSystemBytes.contains(0) else {
@@ -41,7 +41,7 @@ package struct NativePath: Sendable, Hashable {
         self.storage = storage
     }
 
-    package init?(
+    @_spi(Testing) public init?(
         fileSystemURL url: URL
     ) {
         guard url.isFileURL else {
@@ -84,15 +84,15 @@ package struct NativePath: Sendable, Hashable {
         self.storage = storage
     }
 
-    package var fileSystemBytes: ArraySlice<UInt8> {
+    @_spi(Testing) public var fileSystemBytes: ArraySlice<UInt8> {
         storage.dropLast()
     }
 
-    package var isAbsolute: Bool {
+    @_spi(Testing) public var isAbsolute: Bool {
         storage.first == 47
     }
 
-    package func appending(
+    @_spi(Testing) public func appending(
         _ component: Component
     ) -> NativePath {
         appendingTrustedFileSystemComponent(
@@ -131,7 +131,7 @@ package struct NativePath: Sendable, Hashable {
         )
     }
 
-    package func withCString<Result>(
+    @_spi(Testing) public func withCString<Result>(
         _ body: (UnsafePointer<CChar>) throws -> Result
     ) rethrows -> Result {
         try storage.withUnsafeBufferPointer { buffer in
@@ -150,7 +150,7 @@ package struct NativePath: Sendable, Hashable {
         }
     }
 
-    package func fileSystemURL(
+    @_spi(Testing) public func fileSystemURL(
         isDirectory: Bool
     ) -> URL {
         withCString {

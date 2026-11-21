@@ -1,4 +1,4 @@
-import IO
+@_spi(Testing) import IO
 
 #if canImport(Darwin)
 import Darwin

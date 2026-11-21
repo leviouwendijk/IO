@@ -1,5 +1,5 @@
 import Dispatch
-import IO
+@_spi(Testing) import IO
 import Foundation
 
 /// Stages in the synthetic in-memory decomposition benchmark.

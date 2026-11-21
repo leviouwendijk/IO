@@ -1,5 +1,5 @@
 import Dispatch
-import IO
+@_spi(Testing) import IO
 import Foundation
 
 #if canImport(Darwin)

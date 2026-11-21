@@ -1,5 +1,5 @@
 import Foundation
-import IO
+@_spi(Testing) import IO
 
 extension TestIO {
     struct FileSystemBaselineCounters: Equatable {

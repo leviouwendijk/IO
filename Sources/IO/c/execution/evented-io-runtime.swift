@@ -62,19 +62,19 @@ public final class EventedIORuntime:
     /// Hazard-harness hook (#3a): the reactor's wake pipe `(read, write)`.
     /// Not API; exposed so a probe can check the descriptors stay owned until
     /// the reactor is deinitialized.
-    package var wakePipeDescriptorsForTesting: (read: Int32, write: Int32) {
+    @_spi(Testing) public var wakePipeDescriptorsForTesting: (read: Int32, write: Int32) {
         reactor.wakePipeDescriptors
     }
 
     /// Hazard-harness hook (#3a): performs the reactor's internal `wake()`, as a
     /// late waiter registration or cancellation would after shutdown.
-    package func wakeForTesting() {
+    @_spi(Testing) public func wakeForTesting() {
         reactor.wakeForTesting()
     }
 
     /// Hazard-harness hook (#3a): pauses an otherwise real wake immediately
     /// before its write so shutdown/wake lifetime ordering can be forced.
-    package func wakeForTesting(
+    @_spi(Testing) public func wakeForTesting(
         beforeWrite: @escaping @Sendable () -> Void
     ) {
         reactor.wakeForTesting(
@@ -84,7 +84,7 @@ public final class EventedIORuntime:
 
     /// Hazard-harness hook (#3a): reports whether the reactor thread has
     /// actually returned from its run loop after shutdown.
-    package var reactorThreadFinishedForTesting: Bool {
+    @_spi(Testing) public var reactorThreadFinishedForTesting: Bool {
         reactor.threadFinishedForTesting
     }
 

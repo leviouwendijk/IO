@@ -1,4 +1,4 @@
-import IO
+@_spi(Testing) import IO
 
 struct TestFailure: Error, CustomStringConvertible {
     let message: String

@@ -36,7 +36,7 @@ public struct Destination: ~Copyable {
             )
     }
 
-    package init<
+    @_spi(Testing) public init<
         Backend:
             DestinationBackend
             & ~Copyable
@@ -76,20 +76,20 @@ public struct Destination: ~Copyable {
     }
 
     /// Diagnostic count of drains that exposed two physical readable regions.
-    package var splitDrainCount: UInt64 {
+    @_spi(Testing) public var splitDrainCount: UInt64 {
         borrowing get {
             state.splitDrainCallCount
         }
     }
 
-    package var directDrainCount: UInt64 {
+    @_spi(Testing) public var directDrainCount: UInt64 {
         borrowing get {
             state.directDrainCallCount
         }
     }
 
     /// Compatibility diagnostic retained for benchmark code. Ring storage never compacts.
-    package var bufferCompactionStatistics:
+    @_spi(Testing) public var bufferCompactionStatistics:
         StreamBufferCompactionStatistics
     {
         borrowing get {

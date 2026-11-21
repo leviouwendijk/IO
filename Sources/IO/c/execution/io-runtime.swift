@@ -9,13 +9,13 @@ public typealias IODuration =
 /// One anchor instant is shared by every runtime and every `IO` value, so a
 /// deadline created through one `IO` denotes the same instant on any other
 /// runtime in the process. Runtimes must not keep private epochs.
-package enum IOMonotonicDomain {
+@_spi(Testing) public enum IOMonotonicDomain {
     private static let clock =
         MonotonicClock()
     private static let anchor =
         clock.now
 
-    package static func nanoseconds()
+    @_spi(Testing) public static func nanoseconds()
         -> UInt64
     {
         let elapsed =
@@ -43,10 +43,10 @@ public struct IODeadline:
     Hashable,
     Comparable
 {
-    package let nanosecondsSinceRuntimeEpoch:
+    @_spi(Testing) public let nanosecondsSinceRuntimeEpoch:
         UInt64
 
-    package init(
+    @_spi(Testing) public init(
         nanosecondsSinceRuntimeEpoch:
             UInt64
     ) {

@@ -4,11 +4,11 @@
 /// current owned `[UInt8]` storage. Readable and writable logical ranges may
 /// occupy at most two physical regions. Cursor movement never relocates
 /// retained payload bytes.
-package struct StreamRingBuffer {
+@_spi(Testing) public struct StreamRingBuffer {
     private var storage: [UInt8]
     private var state: StreamRingState
 
-    package init(capacity: BufferCapacity) {
+    @_spi(Testing) public init(capacity: BufferCapacity) {
         self.storage = Array(
             repeating: 0,
             count: capacity.value
@@ -18,13 +18,13 @@ package struct StreamRingBuffer {
         )
     }
 
-    package var capacity: Int { state.capacity }
-    package var readableCount: Int { state.readableCount }
-    package var writableCount: Int { state.writableCount }
-    package var isEmpty: Bool { state.isEmpty }
-    package var isFull: Bool { state.isFull }
+    @_spi(Testing) public var capacity: Int { state.capacity }
+    @_spi(Testing) public var readableCount: Int { state.readableCount }
+    @_spi(Testing) public var writableCount: Int { state.writableCount }
+    @_spi(Testing) public var isEmpty: Bool { state.isEmpty }
+    @_spi(Testing) public var isFull: Bool { state.isFull }
 
-    package func withReadableRegions<Result>(
+    @_spi(Testing) public func withReadableRegions<Result>(
         _ body: (
             UnsafeRawBufferPointer,
             UnsafeRawBufferPointer
@@ -49,7 +49,7 @@ package struct StreamRingBuffer {
         }
     }
 
-    package mutating func withWritableRegions<Result>(
+    @_spi(Testing) public mutating func withWritableRegions<Result>(
         _ body: (
             UnsafeMutableRawBufferPointer,
             UnsafeMutableRawBufferPointer
@@ -74,15 +74,15 @@ package struct StreamRingBuffer {
         }
     }
 
-    package mutating func didWrite(_ count: Int) {
+    @_spi(Testing) public mutating func didWrite(_ count: Int) {
         state.didWrite(count)
     }
 
-    package mutating func consume(_ count: Int) {
+    @_spi(Testing) public mutating func consume(_ count: Int) {
         state.consume(count)
     }
 
-    package mutating func append(_ byte: UInt8) -> Bool {
+    @_spi(Testing) public mutating func append(_ byte: UInt8) -> Bool {
         guard state.writableCount > 0 else { return false }
 
         storage[state.writeIndex] = byte
@@ -90,7 +90,7 @@ package struct StreamRingBuffer {
         return true
     }
 
-    package mutating func append(
+    @_spi(Testing) public mutating func append(
         _ bytes: UnsafeRawBufferPointer
     ) -> Int {
         let accepted = min(bytes.count, state.writableCount)

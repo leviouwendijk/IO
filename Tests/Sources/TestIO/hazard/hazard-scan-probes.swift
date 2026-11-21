@@ -1,7 +1,7 @@
 #if canImport(Darwin)
 import Darwin
 import Foundation
-import IO
+@_spi(Testing) import IO
 
 /// Scanner / fingerprint probes: audit findings #8b, #9, line fingerprint.
 enum HZScanProbes {

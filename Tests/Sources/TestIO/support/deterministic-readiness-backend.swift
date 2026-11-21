@@ -1,4 +1,4 @@
-import IO
+@_spi(Testing) import IO
 
 /// Deterministic readiness backend for schedule/backpressure tests.
 struct DeterministicReadinessBackend: ReadinessBackend, Sendable {

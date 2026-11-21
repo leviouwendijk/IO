@@ -1,16 +1,16 @@
-package struct DestinationState: Sendable {
-    package var drainCallCount: UInt64
-    package var drainedByteCount: UInt64
-    package var flushCallCount: UInt64
-    package var splitDrainCallCount: UInt64
-    package var directDrainCallCount: UInt64
-    package let directBypassPolicy: DestinationDirectBypassPolicy
+@_spi(Testing) public struct DestinationState: Sendable {
+    @_spi(Testing) public var drainCallCount: UInt64
+    @_spi(Testing) public var drainedByteCount: UInt64
+    @_spi(Testing) public var flushCallCount: UInt64
+    @_spi(Testing) public var splitDrainCallCount: UInt64
+    @_spi(Testing) public var directDrainCallCount: UInt64
+    @_spi(Testing) public let directBypassPolicy: DestinationDirectBypassPolicy
 
     /// Backend failure deferred because a multi-byte write had already accepted a
     /// prefix; thrown by the next write or flush.
-    package var pendingError: (any Error)?
+    @_spi(Testing) public var pendingError: (any Error)?
 
-    package init(
+    @_spi(Testing) public init(
         directBypassPolicy: DestinationDirectBypassPolicy
     ) {
         self.drainCallCount = 0
@@ -24,7 +24,7 @@ package struct DestinationState: Sendable {
     }
 
     /// Throws, and clears, a failure deferred by an earlier partial write.
-    package mutating func throwPendingError() throws {
+    @_spi(Testing) public mutating func throwPendingError() throws {
         guard let error = pendingError else {
             return
         }
@@ -33,7 +33,7 @@ package struct DestinationState: Sendable {
         throw error
     }
 
-    package var statistics: DestinationStatistics {
+    @_spi(Testing) public var statistics: DestinationStatistics {
         .init(
             drainCallCount: drainCallCount,
             drainedByteCount: drainedByteCount,
@@ -47,8 +47,8 @@ package struct DestinationState: Sendable {
 /// `Destination` supplies owned ring storage. `BorrowedDestination` supplies a
 /// lifetime-bound borrowed ring. Backend dispatch and all byte-flow semantics
 /// remain identical.
-package enum DestinationAlgorithm {
-    package static func write<
+@_spi(Testing) public enum DestinationAlgorithm {
+    @_spi(Testing) public static func write<
         Buffer:
             DestinationRingStorage
             & ~Copyable
@@ -86,7 +86,7 @@ package enum DestinationAlgorithm {
         return .complete
     }
 
-    package static func write<
+    @_spi(Testing) public static func write<
         Buffer:
             DestinationRingStorage
             & ~Copyable
@@ -192,7 +192,7 @@ package enum DestinationAlgorithm {
         return .complete
     }
 
-    package static func flush<
+    @_spi(Testing) public static func flush<
         Buffer:
             DestinationRingStorage
             & ~Copyable

@@ -1,4 +1,4 @@
-import IO
+@_spi(Testing) import IO
 
 /// Test-only erased contiguous source preserving the pre-ring production representation.
 /// It exists only as an A/B/C/D benchmark reference after production `Source` converges

@@ -4,7 +4,7 @@
 /// lifetime-bound to the caller. The type cannot escape that storage lifetime.
 /// All byte-flow behavior is delegated to the same `SourceAlgorithm` used by
 /// the ordinary owned `Source`.
-package struct BorrowedSource: ~Copyable, ~Escapable {
+@_spi(Testing) public struct BorrowedSource: ~Copyable, ~Escapable {
     private var backend:
         any SourceBackend
             & ~Copyable
@@ -31,26 +31,26 @@ package struct BorrowedSource: ~Copyable, ~Escapable {
             SourceState()
     }
 
-    package var bufferedByteCount: Int {
+    @_spi(Testing) public var bufferedByteCount: Int {
         borrowing get {
             buffer.readableCount
         }
     }
 
-    package var hasReachedEnd: Bool {
+    @_spi(Testing) public var hasReachedEnd: Bool {
         borrowing get {
             state.ended
         }
     }
 
-    package var isExhausted: Bool {
+    @_spi(Testing) public var isExhausted: Bool {
         borrowing get {
             state.ended
                 && buffer.isEmpty
         }
     }
 
-    package var statistics:
+    @_spi(Testing) public var statistics:
         SourceStatistics
     {
         borrowing get {
@@ -58,13 +58,13 @@ package struct BorrowedSource: ~Copyable, ~Escapable {
         }
     }
 
-    package var splitRefillCount: UInt64 {
+    @_spi(Testing) public var splitRefillCount: UInt64 {
         borrowing get {
             state.splitRefillCallCount
         }
     }
 
-    package var bufferCompactionStatistics:
+    @_spi(Testing) public var bufferCompactionStatistics:
         StreamBufferCompactionStatistics
     {
         borrowing get {
@@ -75,7 +75,7 @@ package struct BorrowedSource: ~Copyable, ~Escapable {
         }
     }
 
-    package borrowing func withReadableRegions<
+    @_spi(Testing) public borrowing func withReadableRegions<
         Result
     >(
         _ body: (
@@ -89,7 +89,7 @@ package struct BorrowedSource: ~Copyable, ~Escapable {
             )
     }
 
-    package borrowing func withBytes<
+    @_spi(Testing) public borrowing func withBytes<
         Result
     >(
         _ body: (
@@ -107,7 +107,7 @@ package struct BorrowedSource: ~Copyable, ~Escapable {
             }
     }
 
-    package mutating func consume(
+    @_spi(Testing) public mutating func consume(
         _ count: Int
     ) throws {
         try SourceAlgorithm.consume(
@@ -116,7 +116,7 @@ package struct BorrowedSource: ~Copyable, ~Escapable {
         )
     }
 
-    package mutating func prepare()
+    @_spi(Testing) public mutating func prepare()
         throws -> SourceAvailability
     {
         try SourceAlgorithm.prepare(
@@ -126,7 +126,7 @@ package struct BorrowedSource: ~Copyable, ~Escapable {
         )
     }
 
-    package mutating func requestMore()
+    @_spi(Testing) public mutating func requestMore()
         throws -> SourceAvailability
     {
         try SourceAlgorithm.requestMore(
@@ -136,7 +136,7 @@ package struct BorrowedSource: ~Copyable, ~Escapable {
         )
     }
 
-    package mutating func read(
+    @_spi(Testing) public mutating func read(
         into output:
             UnsafeMutableRawBufferPointer
     ) throws -> SourceRead {
@@ -154,7 +154,7 @@ package struct BorrowedSource: ~Copyable, ~Escapable {
 /// This mirrors `withBorrowedDestination`: the borrowed ring and uniquely-owned
 /// backend are formed in one scope, moved into the nonescapable endpoint, and
 /// only the completed endpoint is exposed to the user body.
-package func withBorrowedSource<
+@_spi(Testing) public func withBorrowedSource<
     Backend:
         SourceBackend
         & ~Copyable,

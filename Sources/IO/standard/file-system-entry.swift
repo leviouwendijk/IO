@@ -18,7 +18,7 @@ public struct FileSystemEntry:
             kind
     }
 
-    package init(
+    @_spi(Testing) public init(
         standardizedURL url: URL,
         kind: FileKind
     ) {

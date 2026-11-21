@@ -1,4 +1,4 @@
-import IO
+@_spi(Testing) import IO
 
 extension TestIO {
     /// Deterministic property-style verification over many byte layouts, UTF-8 sequences,

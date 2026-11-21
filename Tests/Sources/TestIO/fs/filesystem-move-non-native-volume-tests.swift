@@ -1,5 +1,5 @@
 import Foundation
-import IO
+@_spi(Testing) import IO
 
 extension TestIO {
     /// A no-replace move on a volume without `RENAME_EXCL` (exFAT) falls back

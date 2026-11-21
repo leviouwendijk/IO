@@ -1,6 +1,6 @@
 import Dispatch
 import Foundation
-import IO
+@_spi(Testing) import IO
 
 private enum DispatchVTableError: Error {
     case source_backend

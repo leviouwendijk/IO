@@ -61,14 +61,14 @@ public struct Source: ~Copyable {
     }
 
     /// Diagnostic count of refill calls that exposed two physical writable regions.
-    package var splitRefillCount: UInt64 {
+    @_spi(Testing) public var splitRefillCount: UInt64 {
         borrowing get {
             state.splitRefillCallCount
         }
     }
 
     /// Compatibility diagnostic retained for benchmark code. Ring storage never compacts.
-    package var bufferCompactionStatistics:
+    @_spi(Testing) public var bufferCompactionStatistics:
         StreamBufferCompactionStatistics
     {
         borrowing get {
@@ -128,7 +128,7 @@ public struct Source: ~Copyable {
 
     /// Pointer form of `withReadableRegions(_:)` for package-internal algorithms and
     /// benchmarks. Pointers are valid only for the duration of `body`.
-    package borrowing func withUnsafeReadableRegions<
+    @_spi(Testing) public borrowing func withUnsafeReadableRegions<
         Result
     >(
         _ body: (
@@ -144,7 +144,7 @@ public struct Source: ~Copyable {
 
     /// Pointer form of `withBytes(_:)` for package-internal algorithms and benchmarks.
     /// The pointer is valid only for the duration of `body`.
-    package borrowing func withUnsafeBytes<
+    @_spi(Testing) public borrowing func withUnsafeBytes<
         Result
     >(
         _ body: (

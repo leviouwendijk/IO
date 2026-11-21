@@ -4,11 +4,11 @@ import Darwin
 import Glibc
 #endif
 
-package struct StreamBufferCompactionStatistics: Sendable, Equatable {
-    package let callCount: UInt64
-    package let movedByteCount: UInt64
+@_spi(Testing) public struct StreamBufferCompactionStatistics: Sendable, Equatable {
+    @_spi(Testing) public let callCount: UInt64
+    @_spi(Testing) public let movedByteCount: UInt64
 
-    package init(
+    @_spi(Testing) public init(
         callCount: UInt64,
         movedByteCount: UInt64
     ) {
@@ -36,7 +36,7 @@ package struct StreamBufferCompactionStatistics: Sendable, Equatable {
 ///     storage[writeIndex ..< storage.count]
 ///
 /// Consumed prefix space can be recovered by `compact()`.
-package struct StreamBuffer {
+@_spi(Testing) public struct StreamBuffer {
     /// Owns the bytes backing the stream's staging area.
     ///
     /// Backend code only receives scoped raw-buffer borrows into this storage; it must
@@ -54,7 +54,7 @@ package struct StreamBuffer {
     private var compactedByteCount: UInt64
 
     /// Allocates an empty buffer with a validated nonzero capacity.
-    package init(
+    @_spi(Testing) public init(
         capacity: BufferCapacity
     ) {
         self.storage = Array(
@@ -67,7 +67,7 @@ package struct StreamBuffer {
         self.compactedByteCount = 0
     }
 
-    package var compactionStatistics: StreamBufferCompactionStatistics {
+    @_spi(Testing) public var compactionStatistics: StreamBufferCompactionStatistics {
         .init(
             callCount: compactionCallCount,
             movedByteCount: compactedByteCount
@@ -75,12 +75,12 @@ package struct StreamBuffer {
     }
 
     /// Total storage capacity, independent of the current cursor positions.
-    package var capacity: Int {
+    @_spi(Testing) public var capacity: Int {
         storage.count
     }
 
     /// Number of bytes currently initialized and available to a consumer.
-    package var readableCount: Int {
+    @_spi(Testing) public var readableCount: Int {
         writeIndex - readIndex
     }
 
@@ -88,12 +88,12 @@ package struct StreamBuffer {
     ///
     /// This is deliberately not `capacity - readableCount`: consumed prefix space is not
     /// writable until `compact()` moves the unread tail back to the front.
-    package var writableCount: Int {
+    @_spi(Testing) public var writableCount: Int {
         storage.count - writeIndex
     }
 
     /// Whether there are currently no unread bytes.
-    package var isEmpty: Bool {
+    @_spi(Testing) public var isEmpty: Bool {
         readableCount == 0
     }
 
@@ -105,7 +105,7 @@ package struct StreamBuffer {
     ///
     /// Keeping cursor advancement outside the backend is intentional: byte storage and
     /// cursor mechanics remain north of the dynamic dispatch boundary.
-    package mutating func withWritableBytes<Result>(
+    @_spi(Testing) public mutating func withWritableBytes<Result>(
         _ body: (UnsafeMutableRawBufferPointer) throws -> Result
     ) rethrows -> Result {
         let index = writeIndex
@@ -132,7 +132,7 @@ package struct StreamBuffer {
     /// The returned pointer is valid only for the duration of `body`. This scoped-borrow
     /// shape is important for parsers and codecs: they can inspect the Source's existing
     /// buffer directly instead of allocating/copying into another temporary buffer.
-    package func withReadableBytes<Result>(
+    @_spi(Testing) public func withReadableBytes<Result>(
         _ body: (UnsafeRawBufferPointer) throws -> Result
     ) rethrows -> Result {
         let index = readIndex
@@ -160,7 +160,7 @@ package struct StreamBuffer {
     /// This is an internal trusted operation. Public/backend-facing bounds are checked
     /// before reaching it, so preconditions document invariants rather than recoverable
     /// input errors.
-    package mutating func didWrite(
+    @_spi(Testing) public mutating func didWrite(
         _ count: Int
     ) {
         precondition(count >= 0)
@@ -173,7 +173,7 @@ package struct StreamBuffer {
     ///
     /// Once the readable range becomes empty, both cursors reset to zero. That restores
     /// the entire allocation as immediately writable without performing a copy.
-    package mutating func consume(
+    @_spi(Testing) public mutating func consume(
         _ count: Int
     ) {
         precondition(count >= 0)
@@ -194,7 +194,7 @@ package struct StreamBuffer {
     ///
     /// If prefix space has been consumed and the tail is full, the method first compacts
     /// the unread bytes. It returns `false` only when the buffer remains genuinely full.
-    package mutating func append(
+    @_spi(Testing) public mutating func append(
         _ byte: UInt8
     ) -> Bool {
         if writableCount == 0 && readIndex > 0 {
@@ -219,7 +219,7 @@ package struct StreamBuffer {
     ///
     /// Large writes can bypass this copy entirely in `Destination.write(_:)` when the
     /// internal buffer is empty.
-    package mutating func append(
+    @_spi(Testing) public mutating func append(
         _ bytes: UnsafeRawBufferPointer
     ) -> Int {
         guard !bytes.isEmpty else {
@@ -270,7 +270,7 @@ package struct StreamBuffer {
     /// that representation is worth its two-region mechanics.
     ///
     /// If the buffer is empty, compaction only resets the cursors and copies nothing.
-    package mutating func compact() {
+    @_spi(Testing) public mutating func compact() {
         let count = readableCount
 
         guard count > 0 else {

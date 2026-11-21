@@ -1,4 +1,4 @@
-import IO
+@_spi(Testing) import IO
 
 /// Deterministic Source backend for partial-progress/backpressure tests.
 public struct ScriptedSourceBackend: SourceBackend, ~Copyable {

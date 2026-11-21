@@ -1,17 +1,17 @@
-package struct SourceState: Sendable {
-    package var ended: Bool
-    package var refillCallCount: UInt64
-    package var refilledByteCount: UInt64
-    package var splitRefillCallCount: UInt64
+@_spi(Testing) public struct SourceState: Sendable {
+    @_spi(Testing) public var ended: Bool
+    @_spi(Testing) public var refillCallCount: UInt64
+    @_spi(Testing) public var refilledByteCount: UInt64
+    @_spi(Testing) public var splitRefillCallCount: UInt64
 
-    package init() {
+    @_spi(Testing) public init() {
         self.ended = false
         self.refillCallCount = 0
         self.refilledByteCount = 0
         self.splitRefillCallCount = 0
     }
 
-    package var statistics: SourceStatistics {
+    @_spi(Testing) public var statistics: SourceStatistics {
         .init(
             refillCallCount: refillCallCount,
             refilledByteCount: refilledByteCount
@@ -24,8 +24,8 @@ package struct SourceState: Sendable {
 /// `Source` supplies owned ring storage. `BorrowedSource` supplies a
 /// lifetime-bound borrowed ring. Backend dispatch, EOF handling, refill
 /// semantics, contract checking, and read/consume behavior remain identical.
-package enum SourceAlgorithm {
-    package static func consume<
+@_spi(Testing) public enum SourceAlgorithm {
+    @_spi(Testing) public static func consume<
         Buffer:
             SourceRingStorage
             & ~Copyable
@@ -56,7 +56,7 @@ package enum SourceAlgorithm {
         )
     }
 
-    package static func prepare<
+    @_spi(Testing) public static func prepare<
         Buffer:
             SourceRingStorage
             & ~Copyable
@@ -84,7 +84,7 @@ package enum SourceAlgorithm {
     }
 
     /// Appends backend progress behind any unread suffix without relocating it.
-    package static func requestMore<
+    @_spi(Testing) public static func requestMore<
         Buffer:
             SourceRingStorage
             & ~Copyable
@@ -169,7 +169,7 @@ package enum SourceAlgorithm {
     }
 
     /// Copies at most one prepared logical buffer into caller-owned storage.
-    package static func read<
+    @_spi(Testing) public static func read<
         Buffer:
             SourceRingStorage
             & ~Copyable

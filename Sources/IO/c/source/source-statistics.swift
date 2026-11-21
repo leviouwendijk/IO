@@ -12,7 +12,7 @@ public struct SourceStatistics: Sendable, Equatable {
     /// Total number of payload bytes the backend reported into Source-owned storage.
     public let refilledByteCount: UInt64
 
-    package init(
+    @_spi(Testing) public init(
         refillCallCount: UInt64,
         refilledByteCount: UInt64
     ) {

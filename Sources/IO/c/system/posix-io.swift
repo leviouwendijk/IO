@@ -24,18 +24,18 @@ public struct POSIXIOError: Error, Sendable, Equatable, CustomStringConvertible 
 /// `INT_MAX` with `EINVAL` instead of transferring a prefix. Linux caps transfers
 /// at this same value. Every syscall site clamps to it and reports the resulting
 /// short transfer, which the Source/Destination algorithms already loop over.
-package enum POSIXTransferLimit {
-    package static let maximumByteCount = 0x7FFF_F000
+@_spi(Testing) public enum POSIXTransferLimit {
+    @_spi(Testing) public static let maximumByteCount = 0x7FFF_F000
 
     @inline(__always)
-    package static func clamp(
+    @_spi(Testing) public static func clamp(
         _ count: Int
     ) -> Int {
         min(count, maximumByteCount)
     }
 }
 
-package enum POSIXVectorProgress: Equatable {
+@_spi(Testing) public enum POSIXVectorProgress: Equatable {
     case bytes(Int)
     case end
     case unavailable
@@ -48,8 +48,8 @@ package enum POSIXVectorProgress: Equatable {
 /// a Swift Array on every syscall. Ring storage has at most two physical regions, so a
 /// heap-backed vector container would add allocation/ARC noise to the hot boundary being
 /// measured.
-package enum POSIXVectorIO {
-    package static func readv(
+@_spi(Testing) public enum POSIXVectorIO {
+    @_spi(Testing) public static func readv(
         descriptor: Int32,
         first: UnsafeMutableRawBufferPointer,
         second: UnsafeMutableRawBufferPointer
@@ -78,7 +78,7 @@ package enum POSIXVectorIO {
         return try readProgress(result, operation: "readv")
     }
 
-    package static func writev(
+    @_spi(Testing) public static func writev(
         descriptor: Int32,
         first: UnsafeRawBufferPointer,
         second: UnsafeRawBufferPointer
@@ -104,7 +104,7 @@ package enum POSIXVectorIO {
         return try writeProgress(result, operation: "writev")
     }
 
-    package static func sendmsg(
+    @_spi(Testing) public static func sendmsg(
         descriptor: Int32,
         first: UnsafeRawBufferPointer,
         second: UnsafeRawBufferPointer,
@@ -219,8 +219,8 @@ package enum POSIXVectorIO {
 /// kinds are left untouched. Linux has no per-descriptor switch: socket writes pass
 /// `MSG_NOSIGNAL` per call (`sendFlags`), and pipe `SIGPIPE` policy remains the
 /// process's responsibility.
-package enum POSIXBrokenPipeSignal {
-    package enum Suppression: Sendable, Equatable {
+@_spi(Testing) public enum POSIXBrokenPipeSignal {
+    @_spi(Testing) public enum Suppression: Sendable, Equatable {
         /// Writes on the descriptor now report `EPIPE` instead of raising `SIGPIPE`.
         case suppressed
 
@@ -237,7 +237,7 @@ package enum POSIXBrokenPipeSignal {
         case failed(Int32)
     }
 
-    package static func suppress(
+    @_spi(Testing) public static func suppress(
         descriptor: Int32
     ) -> Suppression {
         #if canImport(Darwin)
@@ -283,7 +283,7 @@ package enum POSIXBrokenPipeSignal {
     }
 
     /// Per-call flags for socket sends.
-    package static var sendFlags: Int32 {
+    @_spi(Testing) public static var sendFlags: Int32 {
         #if canImport(Glibc)
         Int32(MSG_NOSIGNAL)
         #else

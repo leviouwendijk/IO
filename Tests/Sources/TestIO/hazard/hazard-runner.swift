@@ -1,7 +1,7 @@
 #if canImport(Darwin)
 import Darwin
 import Foundation
-import IO
+@_spi(Testing) import IO
 
 /// V0 hazard characterization.
 ///
@@ -566,7 +566,7 @@ final class HZState: @unchecked Sendable {
 
 #else
 
-import IO
+@_spi(Testing) import IO
 
 extension TestIO {
     package static func runHazard(

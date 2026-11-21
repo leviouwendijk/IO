@@ -59,7 +59,7 @@ public struct PositiveByteCount: Sendable, Hashable, Comparable {
     /// This exists to avoid converting an already-proven internal invariant back into a
     /// throwing control flow. Callers of this helper must establish positivity first.
     /// The precondition is therefore a programmer invariant, not input validation.
-    package static func knownPositive(
+    @_spi(Testing) public static func knownPositive(
         _ value: Int
     ) -> Self {
         precondition(value > 0)

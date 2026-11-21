@@ -4,7 +4,7 @@
 /// lifetime-bound to the caller. The type cannot escape that storage lifetime.
 /// All byte-flow behavior is delegated to the same `DestinationAlgorithm` used
 /// by the ordinary owned `Destination`.
-package struct BorrowedDestination: ~Copyable, ~Escapable {
+@_spi(Testing) public struct BorrowedDestination: ~Copyable, ~Escapable {
     private var backend:
         any DestinationBackend
             & ~Copyable
@@ -37,13 +37,13 @@ package struct BorrowedDestination: ~Copyable, ~Escapable {
             )
     }
 
-    package var bufferedByteCount: Int {
+    @_spi(Testing) public var bufferedByteCount: Int {
         borrowing get {
             buffer.readableCount
         }
     }
 
-    package var statistics:
+    @_spi(Testing) public var statistics:
         DestinationStatistics
     {
         borrowing get {
@@ -51,25 +51,25 @@ package struct BorrowedDestination: ~Copyable, ~Escapable {
         }
     }
 
-    package var splitDrainCount: UInt64 {
+    @_spi(Testing) public var splitDrainCount: UInt64 {
         borrowing get {
             state.splitDrainCallCount
         }
     }
 
-    package var directDrainCount: UInt64 {
+    @_spi(Testing) public var directDrainCount: UInt64 {
         borrowing get {
             state.directDrainCallCount
         }
     }
 
-    package mutating func inspectBackend()
+    @_spi(Testing) public mutating func inspectBackend()
         -> DestinationBackendInspection
     {
         backend.inspect()
     }
 
-    package mutating func write(
+    @_spi(Testing) public mutating func write(
         _ byte: UInt8
     ) throws -> DestinationWrite {
         try DestinationAlgorithm.write(
@@ -80,7 +80,7 @@ package struct BorrowedDestination: ~Copyable, ~Escapable {
         )
     }
 
-    package mutating func write(
+    @_spi(Testing) public mutating func write(
         _ bytes: [UInt8]
     ) throws -> DestinationWrite {
         try bytes.withUnsafeBytes {
@@ -90,7 +90,7 @@ package struct BorrowedDestination: ~Copyable, ~Escapable {
         }
     }
 
-    package mutating func write(
+    @_spi(Testing) public mutating func write(
         _ bytes:
             UnsafeRawBufferPointer
     ) throws -> DestinationWrite {
@@ -102,7 +102,7 @@ package struct BorrowedDestination: ~Copyable, ~Escapable {
         )
     }
 
-    package mutating func flush()
+    @_spi(Testing) public mutating func flush()
         throws -> DestinationFlush
     {
         try DestinationAlgorithm.flush(
@@ -112,7 +112,7 @@ package struct BorrowedDestination: ~Copyable, ~Escapable {
         )
     }
 
-    package consuming func close() throws {
+    @_spi(Testing) public consuming func close() throws {
         guard try flush() == .complete else {
             throw DestinationCloseError.unflushed(
                 bufferedByteCount:
@@ -131,7 +131,7 @@ package struct BorrowedDestination: ~Copyable, ~Escapable {
 /// mutable buffer). The borrowed ring is created locally and then moved into
 /// the destination before the user body runs, so neither the uniquely owned
 /// backend nor ring storage is consumed across another borrow closure.
-package func withBorrowedDestination<
+@_spi(Testing) public func withBorrowedDestination<
     Backend:
         DestinationBackend
         & ~Copyable,

@@ -1,7 +1,7 @@
 #if canImport(Darwin)
 import Darwin
 import Foundation
-import IO
+@_spi(Testing) import IO
 
 /// Execution-layer probes: audit findings #3a, #4, #5, #6.
 enum HZExecutionProbes {

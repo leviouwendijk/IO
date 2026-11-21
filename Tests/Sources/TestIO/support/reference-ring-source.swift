@@ -1,4 +1,4 @@
-import IO
+@_spi(Testing) import IO
 
 /// Experimental ring-backed counterpart to `Source`.
 ///
