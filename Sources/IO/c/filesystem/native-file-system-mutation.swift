@@ -2510,10 +2510,12 @@ private let linuxRenameNoReplace: UInt32 = 1
 /// Renames `source` to `destination`, failing with `EEXIST` instead of replacing
 /// an existing destination.
 ///
-/// Darwin uses `renamex_np(RENAME_EXCL)`. Linux uses `renameat2(RENAME_NOREPLACE)`,
-/// which is atomic; only when the kernel, libc, or filesystem lacks it (`ENOSYS`,
-/// `EINVAL`, or no symbol) does it fall back to an `lstat` preflight plus `rename`,
-/// which narrows but cannot close the check-then-rename window.
+/// Darwin uses `renamex_np(RENAME_EXCL)`. Linux uses `renameat2(RENAME_NOREPLACE)`.
+/// Both are atomic. Only when the kernel, libc or filesystem lacks them (Darwin:
+/// `ENOTSUP`/`EINVAL` on exFAT, FAT, SMB and other non-native volumes; Linux:
+/// `ENOSYS`, `EINVAL`, or no symbol) does it fall back to an `lstat` preflight
+/// plus `rename`, which narrows but cannot close the check-then-rename window.
+/// The fallback runs on that failure errno only; the success path is one call.
 @inline(__always)
 private func systemRenameNoReplace(
     _ source:
@@ -2522,12 +2524,43 @@ private func systemRenameNoReplace(
         UnsafePointer<CChar>
 ) -> Int32 {
     #if canImport(Darwin)
-    return Darwin.renamex_np(
+    let result = Darwin.renamex_np(
         source,
         destination,
         UInt32(
             RENAME_EXCL
         )
+    )
+
+    if result == 0 {
+        return 0
+    }
+
+    let code = errno
+
+    guard code == ENOTSUP
+            || code == EINVAL
+    else {
+        return result
+    }
+
+    var destinationInfo = stat()
+
+    if Darwin.lstat(
+        destination,
+        &destinationInfo
+    ) == 0 {
+        errno = EEXIST
+        return -1
+    }
+
+    guard errno == ENOENT else {
+        return -1
+    }
+
+    return Darwin.rename(
+        source,
+        destination
     )
     #elseif canImport(Glibc)
     if let renameAt2 = linuxRenameAt2 {
