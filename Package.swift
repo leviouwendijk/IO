@@ -17,11 +17,11 @@ let package = Package(
     ],
     dependencies: [
         .package(
-            url: "https://github.com/leviouwendijk/Atomos.git",
+            url: "https://github.com/swift-lco/Atomos.git",
             branch: "master"
         ),
         .package(
-            url: "https://github.com/leviouwendijk/Errors.git",
+            url: "https://github.com/swift-lco/Errors.git",
             branch: "master"
         ),
     ],
